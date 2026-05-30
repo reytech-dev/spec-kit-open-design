@@ -15,6 +15,9 @@ Supported arguments:
 - `--source <path>`: override configured source directories for this run.
 - `--output <path>`: override configured output directory for this run.
 - `--strict`: treat warnings as check failures.
+- `--no-mcp`: disable Open Design MCP validation for this run even when configured.
+- `--mcp-project <name-or-id>`: override the configured Open Design MCP project. Use `current` to use the project currently open in Open Design.
+- `--mcp-required`: fail if MCP is enabled but unavailable or returns no assets.
 
 ## Purpose
 
@@ -28,6 +31,7 @@ This command is suitable for manual preflight checks and future CI usage.
 - Do not create directories.
 - Do not patch spec-kit scripts or commands.
 - Do not mutate source assets.
+- Do not mutate the Open Design project through MCP.
 
 ## Phase 0: Configuration and Argument Resolution
 
@@ -40,10 +44,59 @@ This command is suitable for manual preflight checks and future CI usage.
    5. Explicit command arguments.
 3. Determine source directories.
 4. Determine output directory.
+5. Resolve MCP behavior:
+   - Use configured `mcp.enabled`, unless `--no-mcp` is present.
+   - Use configured `mcp.server`; default: `open-design`.
+   - Use configured `mcp.project`; default: `current`.
+   - Use `--mcp-project` if provided.
+   - Treat MCP as required if `--mcp-required` is present or `mcp.fail_on_unavailable: true`.
+
+## Phase 0.5: Optional Open Design MCP Source Inventory
+
+This phase runs only when `mcp.enabled: true` and `--no-mcp` is not present.
+
+Because this command is check-only, it must not materialize MCP assets to disk.
+
+Required MCP check behavior:
+
+1. Use the configured MCP server name, default `open-design`.
+2. Use `search_files` to build a virtual source inventory for the configured Open Design project.
+3. If `mcp.project` is `current`, use the currently open Open Design project.
+4. Prefer MCP metadata, resource identifiers, artifact identifiers, paths, sizes, modified timestamps, and hashes when available.
+5. Call `get_file` only when required to compute a missing hash for comparison with `manifest.json`.
+6. Call `get_artifact` only when required to validate a manifest entry that came from an artifact rather than a file.
+7. Do not write files.
+8. Do not create staging directories.
+9. Do not mutate the Open Design project through MCP.
+
+Virtual MCP inventory entries must be comparable with `manifest.json` entries:
+
+```json
+{
+  "source": "mcp:get_file",
+  "server": "open-design",
+  "project": "current",
+  "original_path": "index.html",
+  "artifact_id": null,
+  "hash": "sha256:...",
+  "modified_at": null
+}
+```
+
+MCP failure behavior:
+
+- If MCP is unavailable and file-system sources exist, continue with a warning unless MCP is required.
+- If MCP is unavailable and no file-system sources exist, fail only when `mcp.fail_on_unavailable: true`, `--mcp-required` is present, or `behavior.fail_on_no_assets: true`.
+- If MCP returns no assets, apply the same no-assets policy as file-system discovery.
+- If `--strict` is present, warnings from MCP unavailability, incomplete metadata, missing hashes, or skipped unsupported assets fail the check.
 
 ## Phase 1: Discover Source Assets
 
 Discover assets using the configured include/exclude patterns.
+
+If MCP is enabled and available, merge the virtual MCP inventory with file-system source assets for comparison.
+
+Do not write MCP assets to disk during check mode.
 
 If no assets are found:
 
@@ -84,6 +137,8 @@ Then fail the check.
    - `data-mappings.json`
    - `specify-context.md`
    - `change-summary.md`
+5. If manifest source mode is `mcp` or `mixed`, verify that MCP provenance in the current inventory is compatible with the manifest.
+6. If `--strict` is present, treat warnings as failures.
 
 ## Phase 4: Report Status
 
@@ -135,10 +190,24 @@ Warnings are present and `--strict` was used.
 - ...
 ```
 
+If MCP is configured but unavailable:
+
+```markdown
+## Open Design Check Failed
+
+Open Design MCP is enabled but unavailable.
+
+### Details
+
+- MCP server: `open-design`
+- Project: `current`
+- Required: true|false
+```
+
 ## Exit Semantics
 
 For agent execution, express the result clearly in the final response:
 
 - Passed: artifacts current.
-- Failed: artifacts missing, stale, or strict warnings present.
+- Failed: artifacts missing, stale, MCP-unavailable when required, or strict warnings present.
 - Skipped: no assets found and configuration allows that.

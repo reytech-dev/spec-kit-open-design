@@ -18,6 +18,10 @@ Consider user input before proceeding. Supported arguments:
 - `--check`: perform stale/missing validation only; do not write files. Equivalent to `/speckit.open-design.check` behavior.
 - `--diff`: emphasize asset and artifact changes in the final summary.
 - `--no-history`: skip writing a timestamped history snapshot for this run.
+- `--no-mcp`: disable Open Design MCP retrieval for this run even when configured.
+- `--mcp-project <name-or-id>`: override the configured Open Design MCP project. Use `current` to use the project currently open in Open Design.
+- `--mcp-materialize <path>`: override the staging directory used for MCP-retrieved assets.
+- `--mcp-required`: fail if MCP is enabled but unavailable or returns no assets.
 
 ## Purpose
 
@@ -31,6 +35,7 @@ This command is intentionally global-project-scoped. It does not require an acti
 - Do not patch installed `speckit.specify`, `speckit.plan`, `speckit.tasks`, or other command files.
 - Do not add `design-processing/` to spec-kit core prerequisite scripts.
 - Do not mutate source design assets.
+- Do not mutate the Open Design project through MCP.
 - Do not invent design constraints without marking them as inferred.
 - Do not silently discard ambiguity; report warnings.
 
@@ -79,10 +84,85 @@ history/<timestamp>/...
 5. Determine history behavior:
    - Use configured `output.history` and `behavior.preserve_history`.
    - Disable history if `--no-history` is present.
-6. Ensure output directory is outside source processing exclusions.
-7. If no source directory exists:
+6. Resolve MCP behavior:
+   - Use configured `mcp.enabled`, unless `--no-mcp` is present.
+   - Use configured `mcp.server`; default: `open-design`.
+   - Use configured `mcp.project`; default: `current`.
+   - Use `--mcp-project` if provided.
+   - Use configured `mcp.materialize_sources`; default: `true`.
+   - Use configured `mcp.staging_directory`; default: `designs/design-processing/.staging/open-design-mcp`.
+   - Use `--mcp-materialize` if provided.
+   - Treat MCP as required if `--mcp-required` is present or `mcp.fail_on_unavailable: true`.
+7. Ensure output directory is outside source processing exclusions.
+8. If MCP is enabled, execute Phase 0.5 before deciding whether source directories exist.
+9. If no source directory exists after MCP materialization:
    - If `behavior.fail_on_no_assets: true`, stop with a clear error.
    - Otherwise write no artifacts and report that no Open Design assets were found.
+
+## Phase 0.5: Optional Open Design MCP Source Resolution
+
+This phase runs only when `mcp.enabled: true` and `--no-mcp` is not present.
+
+Use the configured MCP server as an additional source of Open Design assets before normal file-system discovery.
+
+MCP server defaults:
+
+```yaml
+mcp:
+  enabled: true
+  server: open-design
+  project: current
+  artifact_strategy: live-first
+  materialize_sources: true
+  staging_directory: designs/design-processing/.staging/open-design-mcp
+  fail_on_unavailable: false
+```
+
+Required MCP behavior:
+
+1. Use the configured MCP server name, default `open-design`.
+2. Discover Open Design project files with `search_files`.
+3. If `mcp.project` is `current`, use the currently open Open Design project.
+4. Prefer assets in this order:
+   - explicit Open Design metadata
+   - generated artifacts
+   - entry HTML
+   - CSS and token files
+   - JSX, TSX, JS, and TS components
+   - JSON metadata
+   - Markdown design notes
+   - SVG and icon assets
+   - raster or media references
+5. Retrieve text/code assets with `get_file`.
+6. Retrieve generated or renderable Open Design outputs with `get_artifact`.
+7. Do not mutate the Open Design project through MCP.
+8. Do not call non-Open-Design MCP tools for this phase.
+
+When `mcp.materialize_sources: true`:
+
+1. Create or refresh the staging directory:
+
+   ```text
+   designs/design-processing/.staging/open-design-mcp/
+   ```
+
+2. Write retrieved MCP assets into the staging directory using stable, collision-safe relative paths.
+3. Preserve the original Open Design path, artifact id, or MCP resource identifier as provenance metadata.
+4. Add the staging directory to the source directories for this run.
+5. Process the staged files through the same normalization, hashing, and artifact-generation phases as ordinary file-system assets.
+
+When `mcp.materialize_sources: false`:
+
+1. Build an in-memory virtual source inventory from MCP responses.
+2. Continue normalization using the same schemas and confidence rules as file-system assets.
+3. Still record source provenance in `normalized-assets.json` and `manifest.json`.
+
+MCP failure behavior:
+
+- If MCP is unavailable and file-system sources exist, continue with a warning unless MCP is required.
+- If MCP is unavailable and no file-system sources exist, fail only when `mcp.fail_on_unavailable: true`, `--mcp-required` is present, or `behavior.fail_on_no_assets: true`.
+- If MCP returns no assets, apply the same no-assets policy as file-system discovery.
+- All MCP failures, skipped assets, unsupported artifact types, and fallback behavior must be recorded in `change-summary.md`.
 
 ## Phase 1: Asset Discovery and Normalization
 
@@ -95,6 +175,7 @@ Supported asset categories:
 | Markup | `.html`, `.htm` | High | Parse DOM, CSS, scripts, titles, visible text, routes, components, states. |
 | Styles | `.css` | High | Parse tokens, rules, media queries, pseudo states, selectors. |
 | Structured metadata | `.json`, `.md` | Medium/High | Parse labels, design notes, component descriptions, generated Open Design metadata. |
+| Components/code | `.jsx`, `.tsx`, `.js`, `.ts` | Medium/High | Extract component structure, props, class names, variants, slots, states, and visible copy when inferable. |
 | Vector | `.svg` | Medium | Extract colors, dimensions, symbols, ids, titles, accessible labels. |
 | Schemas | `.graphql`, `.graphqls`, `openapi.*`, `.proto` | High | Use for data-mapping inference. |
 | Raster images | `.png`, `.jpg`, `.jpeg`, `.webp` | Low/Reference | Record as visual references; do not infer exact tokens unless metadata/text is available. |
@@ -107,6 +188,8 @@ For each discovered asset, record:
 ```json
 {
   "path": "designs/screens/login.html",
+  "original_path": "login.html",
+  "source": "filesystem|mcp:get_file|mcp:get_artifact",
   "kind": "html",
   "size_bytes": 12345,
   "hash": "sha256:...",
@@ -118,8 +201,11 @@ For each discovered asset, record:
 
 Write `normalized-assets.json` with:
 
+- source mode: `filesystem`, `mcp`, or `mixed`
 - source directories
+- MCP server and project, if MCP was used
 - discovered assets
+- MCP provenance for each retrieved file or artifact
 - staging extraction results
 - processing confidence
 - warnings
@@ -137,6 +223,7 @@ Write `normalized-assets.json` with:
 4. Determine whether regeneration is required:
    - Required if any asset is added, modified, or removed.
    - Required if any expected artifact is missing.
+   - Required if MCP source inventory changed.
    - Required if `--force` is present.
 5. If `--check` is present:
    - Do not write artifacts.
@@ -148,7 +235,7 @@ Write `normalized-assets.json` with:
 
 ## Phase 3: Extract Design Tokens → `design-tokens.json`
 
-Use high-confidence structured sources first: HTML `<style>`, linked CSS files, SVG attributes, JSON design metadata, and Markdown design-system notes.
+Use high-confidence structured sources first: HTML `<style>`, linked CSS files, component files, SVG attributes, JSON design metadata, and Markdown design-system notes.
 
 Extract:
 
@@ -201,10 +288,19 @@ Output schema:
 ```json
 {
   "version": 1,
+  "source_mode": "filesystem|mcp|mixed",
   "source": {
+    "mode": "filesystem|mcp|mixed",
     "directories": ["designs/"],
     "files": 0,
-    "generated_at": "<timestamp>"
+    "generated_at": "<timestamp>",
+    "mcp": {
+      "enabled": false,
+      "server": "open-design",
+      "project": "current",
+      "retrieved_at": null,
+      "staging_directory": null
+    }
   },
   "palette": {},
   "typography": {
@@ -229,16 +325,18 @@ Detection order:
 
 1. Explicit Open Design component metadata, if present.
 2. Repeated HTML class names or DOM structures.
-3. CSS selectors reused across screens.
-4. SVG symbol/id reuse.
-5. Markdown/JSON design-system references.
-6. Repeated visual asset usage.
+3. Component files from MCP or local sources.
+4. CSS selectors reused across screens.
+5. SVG symbol/id reuse.
+6. Markdown/JSON design-system references.
+7. Repeated visual asset usage.
 
 Detection heuristics:
 
 - Recurring class names in 2+ files indicate candidate components.
 - Identical CSS rules with different class names indicate variants of the same component.
 - Repeated DOM subtree shapes indicate reusable components.
+- Repeated component exports, prop names, or slots indicate reusable components.
 - `:hover`, `:focus`, `:active`, `.active`, `.disabled`, `[aria-*]` selectors indicate states.
 - Components derived from raster/video-only references must be marked low confidence.
 
@@ -255,67 +353,6 @@ For each component, document:
 - Content slots.
 - Accessibility notes.
 - Warnings.
-
-Output structure:
-
-```markdown
-# Component Contracts
-
-## Summary
-
-| Component | Confidence | Sources | States Present | Warnings |
-|---|---:|---|---|---|
-
-## Components
-
-### ComponentName
-
-**Confidence**: high|medium|low  
-**Derived from**: CSS class / DOM structure / Open Design metadata / SVG / reference asset  
-**Appears in**: ...
-
-#### Representative Structure
-
-```html
-...
-```
-
-#### CSS / Token Mapping
-
-| Design Source | Token / Target Mapping | Notes |
-|---|---|---|
-
-#### States Present
-
-- default
-- hover
-
-#### States Required but Not Shown
-
-- loading
-- disabled
-- focus-visible
-
-#### Props
-
-```typescript
-interface ComponentNameProps {
-  children?: React.ReactNode;
-}
-```
-
-#### Slots
-
-- ...
-
-#### Accessibility Notes
-
-- ...
-
-#### Warnings
-
-- ...
-```
 
 ## Phase 5: Map Page, Screen, Flow, and Deck Structures → `page-structures.md`
 
@@ -338,6 +375,7 @@ For each structure, capture:
 1. Metadata:
    - title
    - source file
+   - original Open Design path or artifact id, if MCP-sourced
    - inferred route or identifier
    - app area/domain
    - authentication requirement, if inferable
@@ -373,51 +411,6 @@ For each structure, capture:
    - focus order, if inferable
 7. Warnings.
 
-Output structure:
-
-```markdown
-# Page Structures
-
-## Summary
-
-| Structure | Type | Route/ID | Source | Confidence | Warnings |
-|---|---|---|---|---:|---|
-
-## Structures
-
-### login.html → `/login`
-
-#### Metadata
-
-- **Title**: ...
-- **Type**: web page
-- **Auth**: unauthenticated
-- **Confidence**: high
-
-#### Layout
-
-...
-
-#### Component Tree
-
-1. **ComponentName**
-   - Data binding: ...
-   - Conditional visibility: ...
-   - Interactive targets: ...
-
-#### Responsive Behavior
-
-- ...
-
-#### Interaction Notes
-
-- ...
-
-#### Warnings
-
-- ...
-```
-
 ## Phase 6: Define State Variants → `state-variants.yaml`
 
 State variants come from two sources:
@@ -443,25 +436,6 @@ Inference rules:
 | Has pagination | `single-page`, `last-page` |
 | Has async media or animation | `media-loading`, `media-error`, `reduced-motion` |
 
-Output schema:
-
-```yaml
-pages:
-  login:
-    - id: idle
-      shown_in_design: true
-      source_file: "login.html"
-      confidence: high
-      description: "Base form state shown in design."
-      inference_rule: null
-    - id: submitting
-      shown_in_design: false
-      source_file: null
-      confidence: medium
-      description: "Disable inputs and show submit progress while authentication is pending."
-      inference_rule: "has form"
-```
-
 ## Phase 7: Generate Data Mappings → `data-mappings.json`
 
 Use schema files discovered in Phase 1:
@@ -477,17 +451,6 @@ For each page/screen/flow:
 2. Match bindings to schema types and operations.
 3. Infer likely operations only when the schema supports them.
 4. Mark unmatched bindings as warnings.
-
-Output schema:
-
-```json
-{
-  "version": 1,
-  "schema_sources": [],
-  "pages": {},
-  "warnings": []
-}
-```
 
 If no schema files are found, still write the file with:
 
@@ -512,6 +475,13 @@ Required sections:
 # Open Design Context
 
 This project has normalized Open Design assets. New specifications MUST respect these constraints unless the user explicitly overrides them.
+
+## Source
+
+- Mode: `filesystem|mcp|mixed`
+- MCP server: `open-design`
+- MCP project: `current`
+- Generated at: `<timestamp>`
 
 ## Canonical Artifacts
 
@@ -548,6 +518,8 @@ This project has normalized Open Design assets. New specifications MUST respect 
 Generate `change-summary.md` with:
 
 - timestamp
+- source mode
+- MCP server and project, if used
 - source directories
 - asset changes since previous run
 - generated artifacts
@@ -567,10 +539,19 @@ Update `manifest.json` with:
 {
   "version": 1,
   "generated_at": "<timestamp>",
+  "source_mode": "filesystem|mcp|mixed",
   "source": {
+    "mode": "filesystem|mcp|mixed",
     "directories": [],
     "asset_count": 0,
     "hash_algorithm": "sha256",
+    "mcp": {
+      "enabled": false,
+      "server": "open-design",
+      "project": "current",
+      "retrieved_at": null,
+      "staging_directory": null
+    },
     "assets": []
   },
   "artifacts": {
@@ -600,7 +581,9 @@ Report:
 ```markdown
 ## Open Design Processing Complete
 
+**Source mode**: `filesystem|mcp|mixed`  
 **Source**: `<source directories>`  
+**MCP**: `<enabled/disabled, server, project>`  
 **Output**: `designs/design-processing/`  
 **Specification context**: `designs/design-processing/specify-context.md`
 
@@ -642,3 +625,4 @@ Run `/speckit.specify`. The generated `specify-context.md` should be read and tr
 5. Keep `specify-context.md` compact and normative.
 6. Preserve history and change summaries.
 7. Never patch spec-kit core commands or scripts.
+8. Keep Open Design MCP read-only.
