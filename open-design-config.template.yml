@@ -54,6 +54,27 @@ behavior:
   fail_on_parse_warnings: false
 
 mcp:
-  # Reserved for future integration with the Open Design MCP server.
+  # Enables live, headless asset retrieval from the Open Design MCP server.
+  #
+  # Register the MCP server in the agent runtime, for example OpenCode's
+  # opencode.jsonc:
+  #
+  # {
+  #   "mcp": {
+  #     "open-design": {
+  #       "type": "local",
+  #       "command": ["node", "/absolute/path/to/open-design/apps/daemon/dist/cli.js", "mcp"],
+  #       "enabled": true
+  #     }
+  #   }
+  # }
+  #
+  # This extension config controls how retrieved MCP assets are normalized into
+  # spec-kit-readable project artifacts.
   enabled: false
   server: open-design
+  project: current
+  artifact_strategy: live-first
+  materialize_sources: true
+  staging_directory: designs/design-processing/.staging/open-design-mcp
+  fail_on_unavailable: false

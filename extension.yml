@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: "open-design"
   name: "Open Design"
-  version: "1.0.0"
+  version: "1.1.0"
   description: "Normalizes Open Design assets into spec-kit-readable design context before specification generation."
   author: "Philipp Reinert"
   repository: "https://github.com/reytech-dev/spec-kit-open-design"
@@ -22,6 +22,9 @@ provides:
     - name: "speckit.open-design.check"
       file: "commands/check.md"
       description: "Check whether normalized Open Design artifacts are missing or stale without writing files."
+    - name: "speckit.open-design.draft"
+      file: "commands/draft.md"
+      description: "Process Open Design assets, then create design-aware specification draft input."
 
   config:
     - name: "open-design-config.yml"
@@ -81,6 +84,11 @@ defaults:
   mcp:
     enabled: false
     server: "open-design"
+    project: "current"
+    artifact_strategy: "live-first"
+    materialize_sources: true
+    staging_directory: "designs/design-processing/.staging/open-design-mcp"
+    fail_on_unavailable: false
 
 tags:
   - "design"
