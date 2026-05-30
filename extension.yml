@@ -1,0 +1,90 @@
+schema_version: "1.0"
+
+extension:
+  id: "open-design"
+  name: "Open Design"
+  version: "1.0.0"
+  description: "Normalizes Open Design assets into spec-kit-readable design context before specification generation."
+  author: "Philipp Reinert"
+  repository: "https://github.com/reytech-dev/spec-kit-open-design"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.1.0"
+  commands:
+    - "speckit.specify"
+
+provides:
+  commands:
+    - name: "speckit.open-design.process"
+      file: "commands/process.md"
+      description: "Normalize Open Design assets into specification-ready artifacts."
+    - name: "speckit.open-design.check"
+      file: "commands/check.md"
+      description: "Check whether normalized Open Design artifacts are missing or stale without writing files."
+
+  config:
+    - name: "open-design-config.yml"
+      template: "open-design-config.template.yml"
+      description: "Open Design processing configuration."
+      required: false
+
+hooks:
+  before_specify:
+    command: "speckit.open-design.process"
+    optional: true
+    description: "Normalize Open Design assets before specification generation."
+    prompt: "Process Open Design assets before generating the specification?"
+
+defaults:
+  source:
+    directories:
+      - "designs/"
+      - "open-design/"
+      - ".od/artifacts/"
+    include:
+      - "**/*.html"
+      - "**/*.htm"
+      - "**/*.css"
+      - "**/*.svg"
+      - "**/*.json"
+      - "**/*.md"
+      - "**/*.png"
+      - "**/*.jpg"
+      - "**/*.jpeg"
+      - "**/*.webp"
+      - "**/*.pdf"
+      - "**/*.pptx"
+      - "**/*.zip"
+      - "**/*.mp4"
+      - "**/*.mov"
+      - "**/*.graphql"
+      - "**/*.graphqls"
+      - "**/openapi.*"
+      - "**/*.proto"
+    exclude:
+      - "**/node_modules/**"
+      - "**/.git/**"
+      - "**/design-processing/**"
+      - "**/.staging/**"
+  output:
+    directory: "designs/design-processing"
+    history: true
+    history_directory: "designs/design-processing/history"
+    specify_context: "designs/design-processing/specify-context.md"
+  behavior:
+    before_feature_exists: true
+    stale_policy: "regenerate"
+    preserve_history: true
+    fail_on_no_assets: false
+    fail_on_parse_warnings: false
+  mcp:
+    enabled: false
+    server: "open-design"
+
+tags:
+  - "design"
+  - "open-design"
+  - "specification"
+  - "tokens"
+  - "ui"

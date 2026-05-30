@@ -1,0 +1,24 @@
+# .extensionignore
+
+# Development files
+tests/
+.github/
+.gitignore
+.releaserc.yml
+commitlint.config.cjs
+package-lock.json
+package.json
+
+# Build artifacts
+__pycache__/
+*.pyc
+dist/
+
+# Documentation source (keep only the built README)
+docs/
+CONTRIBUTING.md
+
+# Agent subdirs
+.claude/
+.specify/
+.opencode/

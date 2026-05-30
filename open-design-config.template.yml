@@ -1,0 +1,59 @@
+# Open Design extension configuration
+# Copy to: .specify/extensions/open-design/open-design-config.yml
+
+source:
+  # Directories are checked in order. Missing directories are ignored.
+  directories:
+    - designs/
+    - open-design/
+    - .od/artifacts/
+
+  include:
+    - "**/*.html"
+    - "**/*.htm"
+    - "**/*.css"
+    - "**/*.svg"
+    - "**/*.json"
+    - "**/*.md"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.webp"
+    - "**/*.pdf"
+    - "**/*.pptx"
+    - "**/*.zip"
+    - "**/*.mp4"
+    - "**/*.mov"
+    - "**/*.graphql"
+    - "**/*.graphqls"
+    - "**/openapi.*"
+    - "**/*.proto"
+
+  exclude:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/design-processing/**"
+    - "**/.staging/**"
+
+output:
+  # Global project context, intentionally not feature-scoped.
+  directory: designs/design-processing
+  history: true
+  history_directory: designs/design-processing/history
+  specify_context: designs/design-processing/specify-context.md
+
+behavior:
+  # Allows design normalization before a spec-kit feature exists.
+  before_feature_exists: true
+
+  # One of: regenerate, warn, fail
+  stale_policy: regenerate
+
+  preserve_history: true
+  fail_on_no_assets: false
+  fail_on_parse_warnings: false
+
+mcp:
+  # Reserved for future integration with the Open Design MCP server.
+  enabled: false
+  server: open-design
