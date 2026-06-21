@@ -65,6 +65,8 @@ defaults:
       - "**/*.graphqls"
       - "**/openapi.*"
       - "**/*.proto"
+      - "**/*.js"
+      - "**/*.jsx"
     exclude:
       - "**/node_modules/**"
       - "**/.git/**"
