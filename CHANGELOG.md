@@ -1,3 +1,8 @@
+## <small>1.1.1 (2026-06-21)</small>
+
+* fix(config): update include list for files to be considered ([3e5e4f9](https://github.com/reytech-dev/spec-kit-open-design/commit/3e5e4f9))
+* chore(dependabot): add dependabot config ([a645b39](https://github.com/reytech-dev/spec-kit-open-design/commit/a645b39))
+
 ## 1.1.0 (2026-05-30)
 
 * Merge branch 'main' of github.com:reytech-dev/spec-kit-open-design ([8d2cb02](https://github.com/reytech-dev/spec-kit-open-design/commit/8d2cb02))

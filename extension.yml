@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: "open-design"
   name: "Open Design"
-  version: "1.1.0"
+  version: "1.1.1"
   description: "Normalizes Open Design assets into spec-kit-readable design context before specification generation."
   author: "Philipp Reinert"
   repository: "https://github.com/reytech-dev/spec-kit-open-design"
