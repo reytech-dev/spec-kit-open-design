@@ -1,3 +1,7 @@
+## 1.2.0 (2026-06-24)
+
+* feat(visualize): add instructions to execute visual tests to pixel copy the open-design ([e6814e6](https://github.com/reytech-dev/spec-kit-open-design/commit/e6814e6))
+
 ## <small>1.1.1 (2026-06-21)</small>
 
 * fix(config): update include list for files to be considered ([3e5e4f9](https://github.com/reytech-dev/spec-kit-open-design/commit/3e5e4f9))
