@@ -23,6 +23,17 @@ Supported arguments:
 - `--mcp-project <name-or-id>`: pass through to `/speckit.open-design.process`.
 - `--mcp-materialize <path>`: pass through to `/speckit.open-design.process`.
 - `--mcp-required`: pass through to `/speckit.open-design.process`.
+- `--project <slug>`: pass through to `/speckit.open-design.process`.
+- `--visual`: pass through to `/speckit.open-design.process`.
+- `--no-visual`: pass through to `/speckit.open-design.process`.
+- `--visual-output <path>`: pass through to `/speckit.open-design.process`.
+- `--source-map <path>`: pass through to `/speckit.open-design.process`.
+- `--route-map <path>`: pass through to `/speckit.open-design.process`.
+- `--viewport <name|widthxheight>`: pass through to `/speckit.open-design.process`.
+- `--update-screenshots`: pass through to `/speckit.open-design.process`.
+- `--playwright-tests`: pass through to `/speckit.open-design.process`.
+- `--no-playwright-tests`: pass through to `/speckit.open-design.process`.
+- `--fail-on-visual-warnings`: pass through to `/speckit.open-design.process`.
 
 All remaining text is the feature idea to draft.
 
@@ -59,6 +70,17 @@ Pass through supported processing flags:
 - `--mcp-project`
 - `--mcp-materialize`
 - `--mcp-required`
+- `--project`
+- `--visual`
+- `--no-visual`
+- `--visual-output`
+- `--source-map`
+- `--route-map`
+- `--viewport`
+- `--update-screenshots`
+- `--playwright-tests`
+- `--no-playwright-tests`
+- `--fail-on-visual-warnings`
 
 After processing, verify whether the configured specification context file exists.
 

@@ -71,12 +71,55 @@ defaults:
       - "**/node_modules/**"
       - "**/.git/**"
       - "**/design-processing/**"
+      - "**/visual-regression/**"
+      - "**/handoff/**"
       - "**/.staging/**"
   output:
     directory: "designs/design-processing"
     history: true
     history_directory: "designs/design-processing/history"
     specify_context: "designs/design-processing/specify-context.md"
+  project:
+    slug: null
+  visual:
+    enabled: false
+    directory: null
+    screenshots_directory: null
+    source_map: null
+    route_map: null
+    playwright:
+      package_version: "1.50.0"
+      runner: "workbench"
+      browser: "chromium"
+      headless: true
+    render:
+      wait_until: "networkidle"
+      default_timeout_ms: 30000
+      full_page: false
+      animations: "disabled"
+      caret: "hide"
+      scale: "css"
+    viewports:
+      - name: desktop
+        width: 1440
+        height: 1024
+        device_scale_factor: 1
+      - name: tablet
+        width: 768
+        height: 1024
+        device_scale_factor: 1
+      - name: mobile
+        width: 390
+        height: 844
+        device_scale_factor: 2
+    diff:
+      max_diff_pixels: 200
+      max_diff_pixel_ratio: 0.001
+      threshold: 0.2
+    failure_policy:
+      fail_on_render_error: false
+      fail_on_missing_fonts: false
+      fail_on_external_assets: false
   behavior:
     before_feature_exists: true
     stale_policy: "regenerate"

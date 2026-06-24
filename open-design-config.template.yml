@@ -7,6 +7,7 @@ source:
     - designs/
     - open-design/
     - .od/artifacts/
+    - workspace/design-context/${project.slug}/source/open-design-export
 
   include:
     - "**/*.html"
@@ -33,6 +34,8 @@ source:
     - "**/node_modules/**"
     - "**/.git/**"
     - "**/design-processing/**"
+    - "**/visual-regression/**"
+    - "**/handoff/**"
     - "**/.staging/**"
 
 output:
@@ -41,6 +44,18 @@ output:
   history: true
   history_directory: designs/design-processing/history
   specify_context: designs/design-processing/specify-context.md
+
+project:
+  # Workbench-level project slug used to derive design-context paths.
+  #
+  # When set, defaults resolve to:
+  #   workspace/design-context/<slug>/source/open-design-export
+  #   workspace/design-context/<slug>/design-processing
+  #   workspace/design-context/<slug>/visual-regression
+  #   workspace/design-context/<slug>/handoff
+  #
+  # Set to null to disable project-scoped path inference.
+  slug: null
 
 behavior:
   # Allows design normalization before a spec-kit feature exists.
@@ -78,3 +93,91 @@ mcp:
   materialize_sources: true
   staging_directory: designs/design-processing/.staging/open-design-mcp
   fail_on_unavailable: false
+
+visual:
+  # Enable rendered visual extraction and visual regression package generation.
+  #
+  # When enabled, the extension renders renderable Open Design sources at
+  # configured viewports, captures canonical screenshots, extracts a DOM+style
+  # tree into design-ir.json, and generates a self-contained visual regression
+  # package that works before a frontend repository exists.
+  enabled: false
+
+  # Output directory for the visual regression package.
+  # Defaults to workspace/design-context/<slug>/visual-regression when
+  # project.slug is set, otherwise <output-directory>/../visual-regression.
+  directory: null
+
+  # Canonical screenshot storage directory.
+  screenshots_directory: null
+
+  # Paths for generated visual fixture files.
+  source_map: null
+  route_map: null
+
+  playwright:
+    # Playwright and @playwright/test npm package version.
+    # Should match the workbench PLAYWRIGHT_VERSION major/minor.
+    package_version: "1.50.0"
+
+    # Runner identifier used for reporting.
+    runner: "workbench"
+
+    # Browser used for rendering and visual comparison.
+    browser: "chromium"
+
+    # Whether to run the browser in headless mode.
+    headless: true
+
+  render:
+    # Page load wait strategy passed to page.goto waitUntil.
+    wait_until: "networkidle"
+
+    # Default timeout in milliseconds for page navigation and rendering.
+    default_timeout_ms: 30000
+
+    # Capture full scrollable page height when true.
+    full_page: false
+
+    # CSS animation strategy: "disabled" disables all animations.
+    animations: "disabled"
+
+    # Caret visibility: "hide" hides text cursor during capture.
+    caret: "hide"
+
+    # Device scale: "css" uses 1 CSS pixel = 1 device pixel.
+    scale: "css"
+
+  viewports:
+    - name: desktop
+      width: 1440
+      height: 1024
+      device_scale_factor: 1
+    - name: tablet
+      width: 768
+      height: 1024
+      device_scale_factor: 1
+    - name: mobile
+      width: 390
+      height: 844
+      device_scale_factor: 2
+
+  diff:
+    # Maximum absolute pixel difference allowed per screenshot.
+    max_diff_pixels: 200
+
+    # Maximum pixel difference ratio allowed per screenshot.
+    max_diff_pixel_ratio: 0.001
+
+    # Pixelmatch comparison threshold (0-1).
+    threshold: 0.2
+
+  failure_policy:
+    # Fail the processing command when a render error occurs.
+    fail_on_render_error: false
+
+    # Emit a warning when fonts are not loaded during capture.
+    fail_on_missing_fonts: false
+
+    # Emit a warning when external assets (CDN, third-party) fail to load.
+    fail_on_external_assets: false
