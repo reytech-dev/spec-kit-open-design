@@ -12,6 +12,7 @@ $ARGUMENTS
 
 Consider user input before proceeding. Supported arguments:
 
+- `--project <slug>`: required for workbench design-context mode. Resolves paths to `workspace/design-context/<slug>/`.
 - `--source <path>`: override configured source directories for this run.
 - `--output <path>`: override configured output directory for this run.
 - `--force`: regenerate all artifacts even when source hashes are unchanged.
@@ -22,17 +23,10 @@ Consider user input before proceeding. Supported arguments:
 - `--mcp-project <name-or-id>`: override the configured Open Design MCP project. Use `current` to use the project currently open in Open Design.
 - `--mcp-materialize <path>`: override the staging directory used for MCP-retrieved assets.
 - `--mcp-required`: fail if MCP is enabled but unavailable or returns no assets.
-- `--project <slug>`: set the workbench-level project slug. Resolves default output paths to `workspace/design-context/<slug>/`.
-- `--visual`: enable visual processing (rendered design IR, canonical screenshots, visual regression package).
-- `--no-visual`: disable visual processing even when configured.
-- `--visual-output <path>`: override the visual-regression output directory.
-- `--source-map <path>`: override the generated source-map.json location.
-- `--route-map <path>`: override the generated route-map.json location.
-- `--viewport <name|widthxheight>`: restrict visual extraction to one viewport.
-- `--update-screenshots`: regenerate canonical screenshots even when design-ir.json exists.
-- `--playwright-tests`: generate the visual regression package (package.json, capture script, playwright spec and config).
-- `--no-playwright-tests`: skip visual regression package generation.
-- `--fail-on-visual-warnings`: fail the command if visual extraction warnings are emitted.
+- `--visual`: enable visual artifact ingestion. Default is `true` when `--project` is provided.
+- `--no-visual`: skip visual artifact ingestion.
+- `--require-visual-artifacts`: fail if design-ir.json, prototype-map.json, source-map.json, or screenshots are missing or invalid.
+- `--force-route-map`: regenerate visual-regression/fixtures/route-map.json even if it already exists.
 
 ## Purpose
 
@@ -49,6 +43,8 @@ This command is intentionally global-project-scoped. It does not require an acti
 - Do not mutate the Open Design project through MCP.
 - Do not invent design constraints without marking them as inferred.
 - Do not silently discard ambiguity; report warnings.
+- Do not generate `visual-regression/package.json`, `capture-open-design.mjs`, `open-design.visual.spec.ts`, or `playwright.config.ts`.
+- Do not run Playwright, install npm packages, start an HTTP server, or capture screenshots.
 
 ## Output Contract
 
@@ -71,7 +67,6 @@ Generated artifacts:
 ```text
 manifest.json
 normalized-assets.json
-design-ir.json
 design-tokens.json
 component-contracts.md
 page-structures.md
@@ -81,19 +76,21 @@ specify-context.md
 frontend-implementation-brief.md
 change-summary.md
 history/<timestamp>/...
-../visual-regression/package.json
-../visual-regression/capture-open-design.mjs
-../visual-regression/open-design.visual.spec.ts
-../visual-regression/playwright.config.ts
-../visual-regression/fixtures/source-map.json
 ../visual-regression/fixtures/route-map.json
-../visual-regression/screenshots/
-../visual-regression/test-results/
 ../handoff/README.md
 ```
 
+Consumed visual artifacts (produced by opencode-environment static crawler):
+
+```text
+design-processing/design-ir.json
+../visual-regression/fixtures/prototype-map.json
+../visual-regression/fixtures/source-map.json
+../visual-regression/screenshots/*.png
+```
+
 `specify-context.md` is the compact, normative artifact that `/speckit.specify` should read and respect.
-`design-ir.json` is the canonical rendered visual implementation contract.
+`design-ir.json` is consumed as the canonical rendered visual implementation contract produced by the crawler.
 `frontend-implementation-brief.md` tells future frontend agents how to consume the design context.
 
 ## Phase 0: Configuration and Argument Resolution
@@ -118,37 +115,31 @@ history/<timestamp>/...
    - Else if `project.slug` is set: `workspace/design-context/<slug>/design-processing`.
    - Otherwise use configured `output.directory`.
    - Default: `designs/design-processing/`.
-6. Determine visual processing directories:
-   - Resolve whether visual processing is enabled:
+6. Determine visual processing mode and artifact paths:
+   - Resolve whether visual artifact ingestion is enabled:
      - `--visual` → enabled.
      - `--no-visual` → disabled.
-     - Otherwise use configured `visual.enabled` (default: `false`).
-   - Determine visual output directory:
-     - Use `--visual-output <path>` if provided.
-     - Else if `--output` was explicitly provided: `<output>/../visual-regression`.
-     - Else if `project.slug` is set: `workspace/design-context/<slug>/visual-regression`.
-     - Otherwise use configured `visual.directory`.
-     - Default: `null` (visual output only generated when explicitly enabled and a path is resolved).
-   - Determine screenshots directory:
-     - Defaults to `<visual-output>/screenshots`.
-     - Override with configured `visual.screenshots_directory` or `--visual-output`-derived path.
-   - Determine source-map location:
-     - Use `--source-map <path>` if provided.
-     - Otherwise use configured `visual.source_map`.
-     - Default: `<visual-output>/fixtures/source-map.json`.
-   - Determine route-map location:
-     - Use `--route-map <path>` if provided.
-     - Otherwise use configured `visual.route_map`.
-     - Default: `<visual-output>/fixtures/route-map.json`.
-   - Determine handoff output directory:
-     - If `project.slug` is set: `workspace/design-context/<slug>/handoff`.
-     - Otherwise: `<output-directory>/../handoff`.
-   - Resolve playwright test generation:
-     - `--playwright-tests` → generate.
-     - `--no-playwright-tests` → skip.
-     - Otherwise default to `true` when visual processing is enabled.
-   - Resolve `--fail-on-visual-warnings` and `visual.failure_policy` settings.
-   - Resolve `--viewport` filter if provided.
+     - `--project <slug>` provided without `--no-visual` → enabled.
+     - Otherwise use configured `visual.enabled` (default: `true`).
+   - Resolve whether visual artifacts are required:
+     - `--require-visual-artifacts` → required.
+     - Otherwise use configured `visual.required` (default: `false`).
+   - Resolve whether to force route-map regeneration:
+     - `--force-route-map` → regenerate.
+     - Otherwise use configured behavior (default: `false`, preserve existing route-map.json).
+   - Determine canonical preview URL:
+     - Use configured `visual.canonical_url_template`.
+     - Default: `http://design-preview:80/design-context/<project-slug>/index.html`.
+   - Determine artifact paths (defaults only; override with configured `visual.artifacts` if set):
+     - `design_context_root`: `workspace/design-context/<project-slug>/`
+     - `design_processing_output`: `workspace/design-context/<project-slug>/design-processing/`
+     - `visual_root`: `workspace/design-context/<project-slug>/visual-regression/`
+     - `design_ir`: `workspace/design-context/<project-slug>/design-processing/design-ir.json`
+     - `prototype_map`: `workspace/design-context/<project-slug>/visual-regression/fixtures/prototype-map.json`
+     - `source_map`: `workspace/design-context/<project-slug>/visual-regression/fixtures/source-map.json`
+     - `screenshots_directory`: `workspace/design-context/<project-slug>/visual-regression/screenshots/`
+     - `route_map`: `workspace/design-context/<project-slug>/visual-regression/fixtures/route-map.json`
+     - `handoff_output`: `workspace/design-context/<project-slug>/handoff/`
 7. Determine history behavior:
    - Use configured `output.history` and `behavior.preserve_history`.
    - Disable history if `--no-history` is present.
@@ -302,550 +293,197 @@ Write `normalized-assets.json` with:
   - Report "Open Design artifacts are up to date."
     - Still show the location of `specify-context.md`.
 
-## Phase 3: Generate Rendered Design IR and Visual Regression Package
+## Phase 3: Ingest Workbench Visual Artifacts
 
-This phase runs when visual processing is enabled (`--visual` or `visual.enabled: true`).
+This phase runs when visual artifact ingestion is enabled (`--visual` or `visual.enabled: true`).
 
-It generates a repository-independent visual contract, canonical screenshots, and a self-contained Playwright visual regression package under the design-context directory. The phase must complete before semantic artifact generation (tokens, components, pages) so that rendered measurements can inform later phases.
+It validates and ingests visual artifacts produced by the opencode-environment static crawler. The extension does NOT run Playwright, does NOT generate crawler code, does NOT start an HTTP server, and does NOT capture screenshots.
 
-### Step 3.1: Detect Renderable Assets
+The crawler command that produces these artifacts is:
 
-From the `normalized-assets.json` produced in Phase 1, identify renderable screens:
-
-**Renderable** (will be rendered at viewports):
-- `.html`, `.htm` files
-- Open Design generated HTML artifacts
-- MCP materialized HTML assets
-- Explicit frame metadata pointing to renderable output
-
-**Reference-only** (recorded but not rendered unless associated with a renderable screen):
-- `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.pdf`, `.pptx`, `.mp4`, `.mov`
-
-For each renderable asset, generate a stable `screen_id` using this priority:
-
-1. Explicit Open Design frame id from metadata.
-2. Explicit page/screen name from Open Design metadata or MCP resource identifier.
-3. HTML `<title>` element content, kebab-cased.
-4. Route hint inferred from filename (e.g. `login.html` → `login-page`).
-5. Normalized relative path from source root, path separators replaced with `-`.
-6. First 8 characters of the file content SHA-256 hash.
-
-Store the screen list for subsequent steps.
-
-### Step 3.2: Generate `source-map.json`
-
-Create the visual-regression fixtures directory.
-
-Write `<visual-output>/fixtures/source-map.json`:
-
-```json
-{
-  "version": 1,
-  "generated_at": "<iso-timestamp>",
-  "designContextRoot": "..",
-  "project": {
-    "slug": "<project-slug-or-null>"
-  },
-  "screens": [
-    {
-      "id": "login-page",
-      "name": "Login Page",
-      "sourcePath": "../source/open-design-export/login.html",
-      "route": "/source/open-design-export/login.html",
-      "sourceHash": "sha256:abc123...",
-      "kind": "web-page",
-      "viewports": ["desktop", "tablet", "mobile"]
-    }
-  ],
-  "viewports": {
-    "desktop": {
-      "width": 1440,
-      "height": 1024,
-      "deviceScaleFactor": 1
-    },
-    "tablet": {
-      "width": 768,
-      "height": 1024,
-      "deviceScaleFactor": 1
-    },
-    "mobile": {
-      "width": 390,
-      "height": 844,
-      "deviceScaleFactor": 2
-    }
-  }
-}
+```bash
+./bin/oe speckit:visual <project-slug> all
 ```
 
-Rules:
-- `sourcePath` must be relative to the source-map.json location, prefixed with `../`.
-- `route` is the URL path used when serving statically from design-context root.
-- If `--viewport` restricts to one viewport, include only that viewport in each screen's `viewports` array and the top-level `viewports` map.
-- Use configured viewport definitions from `visual.viewports`.
+The canonical preview URL is:
 
-### Step 3.3: Generate `route-map.json`
-
-Write `<visual-output>/fixtures/route-map.json`:
-
-```json
-{
-  "version": 1,
-  "generated_at": "<iso-timestamp>",
-  "designContextRoot": "..",
-  "entries": {
-    "login-page__desktop": {
-      "screenId": "login-page",
-      "viewport": {
-        "name": "desktop",
-        "width": 1440,
-        "height": 1024
-      },
-      "implementationRoute": "/login",
-      "referenceScreenshot": "screenshots/login-page__desktop.png",
-      "maxDiffPixels": 200,
-      "maxDiffPixelRatio": 0.001,
-      "threshold": 0.2
-    }
-  }
-}
+```text
+http://design-preview:80/design-context/<project-slug>/index.html
 ```
 
-Rules:
-- One entry per screen × viewport combination.
-- `implementationRoute` is a best-effort hint. Infer from:
-  1. Explicit route metadata in the Open Design asset.
-  2. File path pattern (e.g. `login.html` → `/login`, `dashboard.html` → `/dashboard`).
-  3. HTML `<title>` or `<meta>` route hints.
-  4. Fallback: `/source/open-design-export/<filename>`.
-- Mark the file with a comment noting that the frontend agent must update `implementationRoute` once routes are established.
-- Use configured diff thresholds from `visual.diff`.
+### Step 3.1: Resolve Artifact Locations
 
-### Step 3.4: Generate Visual Regression `package.json`
+Compute and store the following paths:
 
-Write `<visual-output>/package.json`:
-
-```json
-{
-  "name": "speckit-open-design-visual-regression",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "capture": "node capture-open-design.mjs",
-    "compare": "npx playwright test open-design.visual.spec.ts",
-    "update": "npx playwright test open-design.visual.spec.ts --update-snapshots"
-  },
-  "devDependencies": {
-    "@playwright/test": "<version>",
-    "playwright": "<version>",
-    "http-server": "^14.1.1"
-  }
-}
+```text
+design_context_root       = workspace/design-context/<project-slug>/
+design_processing_output  = workspace/design-context/<project-slug>/design-processing/
+visual_root               = workspace/design-context/<project-slug>/visual-regression/
+design_ir                 = workspace/design-context/<project-slug>/design-processing/design-ir.json
+prototype_map             = workspace/design-context/<project-slug>/visual-regression/fixtures/prototype-map.json
+source_map                = workspace/design-context/<project-slug>/visual-regression/fixtures/source-map.json
+screenshots_directory     = workspace/design-context/<project-slug>/visual-regression/screenshots/
+route_map                 = workspace/design-context/<project-slug>/visual-regression/fixtures/route-map.json
+canonical_preview_url     = http://design-preview:80/design-context/<project-slug>/index.html
+handoff_output            = workspace/design-context/<project-slug>/handoff/
 ```
 
-Use the configured `visual.playwright.package_version` for both `@playwright/test` and `playwright`.
+If config paths are explicitly set, use them. Otherwise use these defaults.
 
-### Step 3.5: Generate `capture-open-design.mjs`
+### Step 3.2: Validate design-ir.json
 
-Write `<visual-output>/capture-open-design.mjs`.
+Check whether `design-ir.json` exists at the resolved path.
 
-This script is the canonical screenshot capture and design IR extraction tool. It must work with only the visual-regression package and its sibling directories — no frontend repository required.
+If found, validate required top-level fields:
 
-```javascript
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { resolve, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { lookup } from "node:mime-types";
+- `version` — must be present (number)
+- `generated_at` — must be present (ISO timestamp string)
+- `project.slug` — must equal `<project-slug>`
+- `preview.canonical_url` — must be present; should equal `canonical_preview_url` (record warning if different)
+- `source_mode` — must be present
+- `render_engine` — must be present
+- `viewports` — must be a non-empty array
+- `screens` — must be a non-empty array
+- `warnings` — must be present (array)
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+For each screen:
 
-function loadSourceMap() {
-  const path = resolve(__dirname, "fixtures/source-map.json");
-  if (!existsSync(path)) {
-    console.error("source-map.json not found at", path);
-    process.exit(1);
-  }
-  return JSON.parse(readFileSync(path, "utf-8"));
-}
+- `id` — must be present
+- `name` — must be present
+- `kind` — must be present
+- `preview_url` — must be present
+- `discovery_strategy` — must be present
+- `action_path` — must be present
+- `variants` — must be a non-empty array
+- `warnings` — must be present
 
-function getMimeType(filePath) {
-  const ext = filePath.split(".").pop()?.toLowerCase() || "";
-  const mimeMap = {
-    html: "text/html", htm: "text/html", css: "text/css",
-    js: "application/javascript", mjs: "application/javascript",
-    json: "application/json", svg: "image/svg+xml",
-    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
-    webp: "image/webp", woff2: "font/woff2", woff: "font/woff",
-    ttf: "font/ttf", ico: "image/x-icon",
-  };
-  return mimeMap[ext] || "application/octet-stream";
-}
+For each variant:
 
-function startServer(port = 0) {
-  const designContextRoot = resolve(__dirname, "..");
-  return new Promise((resolveServer) => {
-    const server = createServer(async (req, res) => {
-      const urlPath = (req.url || "/").split("?")[0];
-      const filePath = resolve(designContextRoot, urlPath.replace(/^\//, ""));
-      try {
-        const content = await readFile(filePath);
-        res.writeHead(200, {
-          "Content-Type": getMimeType(filePath),
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(content);
-      } catch {
-        res.writeHead(404);
-        res.end();
-      }
-    });
-    server.listen(port, "127.0.0.1", () => {
-      const addr = server.address();
-      resolveServer({ server, port: addr.port });
-    });
-  });
-}
+- `id` — must be present
+- `viewport` — must be present
+- `signature` — must be present
+- `canvas` — must be present with `width` and `height`
+- `screenshot` — must be present
+- `screenshot.path` — must resolve to an existing PNG file relative to the screenshots directory
+- `screenshot.width` — must be > 0
+- `screenshot.height` — must be > 0
+- `root_node_id` — must be present
+- `nodes` — must be present (array)
+- `assets` — must be present (array)
+- `warnings` — must be present (array)
 
-async function capture() {
-  const sourceMap = loadSourceMap();
-  const { chromium } = await import("playwright");
+Project consistency:
 
-  const screenshotsDir = resolve(__dirname, "screenshots");
-  if (!existsSync(screenshotsDir)) {
-    mkdirSync(screenshotsDir, { recursive: true });
-  }
+- `design_ir.project.slug` must equal `<project-slug>`
+- `design_ir.preview.canonical_url` should equal `canonical_preview_url`
+- If canonical URL differs, record a warning rather than failing unless visual artifacts are required.
 
-  const { server, port } = await startServer(0);
-  const baseUrl = `http://127.0.0.1:${port}`;
-  console.log(`Static server started on ${baseUrl}`);
+Record `design-ir.json` status as: `valid`, `invalid:<reason>`, or `missing`.
 
-  const browser = await chromium.launch({ headless: true });
-  const designIR = {
-    version: 1,
-    generated_at: new Date().toISOString(),
-    project: { slug: sourceMap.project?.slug || null },
-    source_mode: "filesystem",
-    render_engine: {
-      name: "playwright",
-      browser: "chromium",
-      headless: true,
-    },
-    viewports: Object.entries(sourceMap.viewports).map(([name, v]) => ({
-      name,
-      ...v,
-    })),
-    screens: [],
-    assets: [],
-    warnings: [],
-  };
+### Step 3.3: Validate prototype-map.json
 
-  for (const screen of sourceMap.screens) {
-    const screenEntry = {
-      id: screen.id,
-      name: screen.name,
-      source_path: screen.sourcePath,
-      source_hash: screen.sourceHash || null,
-      kind: screen.kind || "web-page",
-      route_hint: screen.route || null,
-      confidence: "high",
-      variants: [],
-      warnings: [],
-    };
+Check whether `prototype-map.json` exists at the resolved path.
 
-    for (const vpName of screen.viewports) {
-      const variantId = `${screen.id}__${vpName}`;
-      const vpDef = sourceMap.viewports[vpName];
-      if (!vpDef) continue;
+If found, validate required fields:
 
-      const page = await browser.newPage();
-      await page.setViewportSize({
-        width: vpDef.width,
-        height: vpDef.height,
-      });
+- `version` — must be present
+- `project.slug` — must equal `<project-slug>`
+- `startUrl` — should equal `canonical_preview_url` (record warning if different)
+- `discovery.strategy` — must be present
+- `pages` — must be a non-empty array
+- `warnings` — must be present (array)
 
-      try {
-        const url = baseUrl + (screen.route || `/source/open-design-export/${screen.id}.html`);
-        await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-        await page.evaluate(() => document.fonts?.ready);
+For each page:
 
-        const screenshotPath = `${variantId}.png`;
-        await page.screenshot({
-          path: resolve(screenshotsDir, screenshotPath),
-          fullPage: false,
-          animations: "disabled",
-          caret: "hide",
-          scale: "css",
-        });
+- `id` — must be present
+- `name` — must be present
+- `entryLabel` — must be present
+- `actionPath` — must be present
+- `warnings` — must be present (array)
 
-        const nodeTree = await page.evaluate(() => {
-          let nodeCounter = 0;
-          function extractNode(el, parentId, depth, index) {
-            const id = `node-${++nodeCounter}`;
-            const tag = (el.tagName || "").toLowerCase();
-            const rect = el.getBoundingClientRect?.() || {};
-            const style = window.getComputedStyle?.(el) || {};
+Record `prototype-map.json` status as: `valid`, `invalid:<reason>`, or `missing`.
 
-            const computedStyle = {};
-            const styleProps = [
-              "display", "position", "boxSizing", "width", "height",
-              "margin", "padding", "gap", "color", "backgroundColor",
-              "fontFamily", "fontSize", "fontWeight", "lineHeight",
-              "letterSpacing", "border", "borderRadius", "boxShadow",
-              "opacity", "overflow", "transform", "zIndex",
-            ];
-            for (const prop of styleProps) {
-              const v = style[prop] || style.getPropertyValue?.(prop);
-              if (v !== undefined && v !== null && v !== "") {
-                computedStyle[prop.replace(/([A-Z])/g, "_$1").toLowerCase()] = v;
-              }
-            }
+### Step 3.4: Validate source-map.json
 
-            const text = el.childNodes?.length === 1 && el.childNodes[0]?.nodeType === 3
-              ? (el.textContent || "").trim()
-              : "";
+Check whether `source-map.json` exists at the resolved path.
 
-            const attrs = {};
-            for (const attr of (el.attributes || [])) {
-              attrs[attr.name] = attr.value;
-            }
+If found, validate required fields:
 
-            const children = [];
-            let childIndex = 0;
-            for (const child of (el.children || [])) {
-              children.push(extractNode(child, id, depth + 1, childIndex++));
-            }
+- `version` — must be present
+- `project.slug` — must equal `<project-slug>`
+- `preview.canonicalUrl` — should equal `canonical_preview_url` (record warning if different)
+- `screens` — must be a non-empty array
+- `viewports` — must be present
+- `warnings` — must be present (array)
 
-            return {
-              id,
-              parent_id: parentId,
-              index,
-              depth,
-              tag,
-              name: (attrs["data-component"] || attrs["data-name"] || attrs["aria-label"] || tag)?.toString(),
-              type: tag === "img" || tag === "svg" ? (tag === "svg" ? "svg" : "image")
-                : tag === "input" || tag === "textarea" || tag === "select" ? "input"
-                : tag === "video" ? "image" : text ? "text" : "element",
-              role: attrs["role"] || null,
-              text: text || null,
-              visible: rect.width > 0 && rect.height > 0,
-              bounds: {
-                x: Math.round(rect.x),
-                y: Math.round(rect.y),
-                width: Math.round(rect.width),
-                height: Math.round(rect.height),
-              },
-              computed_style: computedStyle,
-              attributes: {
-                class: attrs["class"] || null,
-                id: attrs["id"] || null,
-                role: attrs["role"] || null,
-                "aria-label": attrs["aria-label"] || null,
-                src: attrs["src"] || null,
-                href: attrs["href"] || null,
-                type: attrs["type"] || null,
-              },
-              asset_refs: [],
-              children,
-            };
-          }
+For each screen:
 
-          const root = document.body || document.documentElement;
-          if (!root) return { id: "node-root", parent_id: null, index: 0, depth: 0, tag: "body", children: [], warnings: ["No body element found"] };
-          return extractNode(root, null, 0, 0);
-        });
+- `id` — must be present
+- `name` — must be present
+- `url` — must be present
+- `discoveryStrategy` — must be present
+- `actionPath` — must be present
+- `viewports` — must be a non-empty array
 
-        const variant = {
-          id: variantId,
-          viewport: vpName,
-          canvas: {
-            width: vpDef.width,
-            height: vpDef.height,
-            background: "#ffffff",
-          },
-          screenshot: {
-            path: `screenshots/${screenshotPath}`,
-            width: vpDef.width,
-            height: vpDef.height,
-            device_scale_factor: vpDef.deviceScaleFactor || 1,
-          },
-          root_node_id: nodeTree.id,
-          nodes: [nodeTree],
-          assets: [],
-          warnings: [],
-        };
+Cross-reference consistency:
 
-        screenEntry.variants.push(variant);
-      } catch (err) {
-        const warning = `Render failed for ${variantId}: ${err.message}`;
-        console.error(warning);
-        screenEntry.warnings.push(warning);
-        designIR.warnings.push(warning);
-      } finally {
-        await page.close();
-      }
-    }
+- Every source-map screen `id` should exist in design-ir screens
+- Every design-ir screen `id` should exist in source-map screens
+- Record warnings for any mismatches.
 
-    designIR.screens.push(screenEntry);
-  }
+Record `source-map.json` status as: `valid`, `invalid:<reason>`, or `missing`.
 
-  await browser.close();
-  server.close();
+### Step 3.5: Validate Screenshots
 
-  const irPath = resolve(__dirname, "..", "design-processing", "design-ir.json");
-  writeFileSync(irPath, JSON.stringify(designIR, null, 2));
-  console.log(`design-ir.json written to ${irPath}`);
-  console.log(`Screens rendered: ${designIR.screens.length}`);
-  console.log(
-    `Variants captured: ${designIR.screens.reduce((c, s) => c + s.variants.length, 0)}`
-  );
-  console.log(`Warnings: ${designIR.warnings.length}`);
-  if (designIR.warnings.length > 0) {
-    console.log("Warnings:");
-    designIR.warnings.forEach((w) => console.log(`  - ${w}`));
-  }
-}
+Check whether `screenshots_directory` exists and contains at least one `.png` file.
 
-capture().catch((err) => {
-  console.error("Capture failed:", err);
-  process.exit(1);
-});
+For each `variant.screenshot.path` in `design-ir.json`, verify the referenced PNG file exists relative to the screenshots directory.
+
+Record screenshot status: count found, count missing, list of missing references.
+
+### Step 3.6: Handle Missing or Invalid Artifacts
+
+If visual artifact ingestion is enabled and any required artifact is missing or invalid:
+
+**When `--require-visual-artifacts` or `visual.required: true`:**
+
+Fail the command immediately with a clear error:
+
+```text
+Error: Workbench visual artifacts are missing or invalid.
+
+Run:
+./bin/oe speckit:visual <project-slug> all
+
+Then rerun:
+/speckit.open-design.process --project <project-slug>
 ```
 
-### Step 3.6: Generate `open-design.visual.spec.ts`
+**When visual artifacts are not required (default):**
 
-Write `<visual-output>/open-design.visual.spec.ts`:
+Record the warning text into all output artifacts:
 
-```typescript
-import { test, expect, Page } from "@playwright/test";
-import { readFileSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+```
+Workbench visual artifacts are missing or invalid.
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+Run:
+./bin/oe speckit:visual <project-slug> all
 
-interface RouteEntry {
-  screenId: string;
-  viewport: {
-    name: string;
-    width: number;
-    height: number;
-  };
-  implementationRoute: string;
-  referenceScreenshot: string;
-  maxDiffPixels: number;
-  maxDiffPixelRatio: number;
-  threshold: number;
-}
-
-interface RouteMap {
-  entries: Record<string, RouteEntry>;
-}
-
-let routeMap: RouteMap;
-let frontendUrl: string;
-
-test.describe("Open Design Visual Regression", () => {
-  test.beforeAll(() => {
-    const routeMapPath = resolve(__dirname, "fixtures", "route-map.json");
-    if (!existsSync(routeMapPath)) {
-      throw new Error(
-        `route-map.json not found at ${routeMapPath}. ` +
-        `Run capture first: node capture-open-design.mjs`
-      );
-    }
-    routeMap = JSON.parse(readFileSync(routeMapPath, "utf-8"));
-
-    frontendUrl = process.env.FRONTEND_URL || "";
-    if (!frontendUrl) {
-      console.warn(
-        "FRONTEND_URL is not set. Visual comparison will likely fail.\n" +
-        "Set FRONTEND_URL to the running frontend server URL, e.g.:\n" +
-        "  FRONTEND_URL=http://localhost:3000 npx playwright test"
-      );
-    }
-  });
-
-  for (const [entryId, entry] of Object.entries(routeMap.entries || {})) {
-    test(`Visual comparison: ${entryId}`, async ({ page }: { page: Page }) => {
-      test.skip(
-        !frontendUrl,
-        "FRONTEND_URL is not set. Skipping visual comparison."
-      );
-
-      await page.setViewportSize({
-        width: entry.viewport.width,
-        height: entry.viewport.height,
-      });
-
-      const route = entry.implementationRoute;
-      const targetUrl = frontendUrl.replace(/\/$/, "") + route;
-      await page.goto(targetUrl, {
-        waitUntil: "networkidle",
-        timeout: 30000,
-      });
-
-      await page.evaluate(() => document.fonts?.ready);
-
-      const screenshotPath = resolve(
-        __dirname,
-        entry.referenceScreenshot
-      );
-
-      await expect(page).toHaveScreenshot(screenshotPath, {
-        fullPage: false,
-        maxDiffPixels: entry.maxDiffPixels,
-        maxDiffPixelRatio: entry.maxDiffPixelRatio,
-        threshold: entry.threshold,
-        animations: "disabled",
-        caret: "hide",
-        scale: "css",
-      });
-    });
-  }
-});
+Then rerun:
+/speckit.open-design.process --project <project-slug>
 ```
 
-### Step 3.7: Generate `playwright.config.ts`
+Continue processing, but mark `visual_artifacts.available: false` and `visual_artifacts.valid: false` in all generated files.
 
-Write `<visual-output>/playwright.config.ts`:
+### Step 3.7: Generate route-map.json
 
-```typescript
-import { defineConfig } from "@playwright/test";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+Use `source-map.json` and `design-ir.json` as inputs to generate an editable route map template.
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+Read existing `route-map.json` if it exists.
 
-export default defineConfig({
-  testDir: __dirname,
-  outputDir: resolve(__dirname, "test-results"),
-  snapshotDir: resolve(__dirname, "screenshots"),
-  fullyParallel: false,
-  retries: 0,
-  workers: 1,
-  reporter: [["list"], ["html", { outputFolder: resolve(__dirname, "test-results", "html-report") }]],
-  use: {
-    browserName: "chromium",
-    headless: true,
-    viewport: null,
-    ignoreHTTPSErrors: true,
-    screenshot: "off",
-  },
-  projects: [
-    {
-      name: "chromium",
-      use: { browserName: "chromium" },
-    },
-  ],
-});
-```
+**If `route-map.json` does NOT exist:**
 
-### Step 3.8: Generate `design-ir.json`
-
-`design-ir.json` is the canonical rendered visual implementation contract.
-
-The complete schema is:
+Create it with one entry per screen-variant combination discovered from `design-ir.json` and `source-map.json`. Use the following schema:
 
 ```json
 {
@@ -854,250 +492,162 @@ The complete schema is:
   "project": {
     "slug": "<project-slug>"
   },
-  "source_mode": "filesystem|mcp|mixed",
-  "render_engine": {
-    "name": "playwright",
-    "browser": "chromium",
-    "headless": true
+  "frontend": {
+    "default_url": "http://node-runner:5173"
   },
-  "viewports": [
-    {
-      "name": "desktop",
-      "width": 1440,
-      "height": 1024,
-      "device_scale_factor": 1
+  "entries": {
+    "login-page__desktop": {
+      "screenId": "login-page",
+      "screenName": "Login Page",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 1024,
+        "deviceScaleFactor": 1
+      },
+      "implementationRoute": null,
+      "referenceScreenshot": "../screenshots/login-page__desktop.png",
+      "maxDiffPixels": 200,
+      "maxDiffPixelRatio": 0.001,
+      "threshold": 0.2,
+      "actionPath": [],
+      "warnings": [
+        "Set implementationRoute after the frontend route exists."
+      ]
     }
-  ],
-  "screens": [
-    {
-      "id": "login-page",
-      "name": "Login Page",
-      "source_path": "source/open-design-export/login.html",
-      "source_hash": "sha256:abc123...",
-      "kind": "web-page",
-      "route_hint": "/login",
-      "confidence": "high",
-      "variants": [
-        {
-          "id": "login-page__desktop",
-          "viewport": "desktop",
-          "canvas": {
-            "width": 1440,
-            "height": 1024,
-            "background": "#ffffff"
-          },
-          "screenshot": {
-            "path": "../visual-regression/screenshots/login-page__desktop.png",
-            "width": 1440,
-            "height": 1024,
-            "device_scale_factor": 1
-          },
-          "root_node_id": "node-1",
-          "nodes": [],
-          "assets": [],
-          "warnings": []
-        }
-      ],
-      "warnings": []
-    }
-  ],
-  "assets": [],
-  "warnings": []
+  },
+  "warnings": [
+    "implementationRoute values must be filled after frontend routes exist."
+  ]
 }
 ```
 
-Node schema (each entry in the `nodes` array):
+**If `route-map.json` already exists (and `--force-route-map` is NOT set):**
+
+1. Preserve all existing `implementationRoute` values.
+2. Add new entries for screens/variants discovered in `design-ir.json` / `source-map.json` that do not exist in the current route-map.
+3. Do NOT remove stale entries.
+4. Update viewport dimensions and referenceScreenshot paths for existing entries if they changed.
+
+**If `--force-route-map` is set:**
+
+Regenerate the entire `route-map.json` from `design-ir.json` and `source-map.json`. Discard any existing entries. Write fresh entries with `implementationRoute: null` and the standard warnings.
+
+Use `visual.comparison.diff` thresholds from config for `maxDiffPixels`, `maxDiffPixelRatio`, and `threshold` in each entry.
+
+Write the route-map to `<visual_root>/fixtures/route-map.json`.
+
+### Step 3.8: Update normalized-assets.json
+
+After validating all visual artifacts, add a top-level `visual_artifacts` section to the `normalized-assets.json` produced in Phase 1.
+
+When artifacts are available and valid:
 
 ```json
 {
-  "id": "node-123",
-  "parent_id": "node-1",
-  "index": 0,
-  "depth": 2,
-  "tag": "button",
-  "name": "Primary Button",
-  "type": "element|text|image|svg|input|component|container",
-  "role": "button",
-  "text": "Continue",
-  "visible": true,
-  "bounds": {
-    "x": 540,
-    "y": 712,
-    "width": 360,
-    "height": 48
-  },
-  "computed_style": {
-    "display": "flex",
-    "position": "relative",
-    "box_sizing": "border-box",
-    "width": "360px",
-    "height": "48px",
-    "margin": "0px",
-    "padding": "0px 16px",
-    "gap": "8px",
-    "color": "rgb(255, 255, 255)",
-    "background_color": "rgb(0, 87, 255)",
-    "font_family": "Inter, sans-serif",
-    "font_size": "16px",
-    "font_weight": "600",
-    "line_height": "24px",
-    "letter_spacing": "normal",
-    "border": "0px none rgb(255, 255, 255)",
-    "border_radius": "8px",
-    "box_shadow": "none",
-    "opacity": "1",
-    "overflow": "visible",
-    "transform": "none",
-    "z_index": "auto"
-  },
-  "attributes": {
-    "class": "primary-button",
-    "id": null,
-    "role": "button",
-    "aria-label": null,
-    "src": null,
-    "href": null,
-    "type": "submit"
-  },
-  "asset_refs": [],
-  "children": []
+  "visual_artifacts": {
+    "available": true,
+    "valid": true,
+    "producer": "opencode-environment:speckit-visual",
+    "canonical_url": "http://design-preview:80/design-context/<project-slug>/index.html",
+    "design_ir": "design-processing/design-ir.json",
+    "prototype_map": "../visual-regression/fixtures/prototype-map.json",
+    "source_map": "../visual-regression/fixtures/source-map.json",
+    "screenshots_directory": "../visual-regression/screenshots",
+    "screen_count": 3,
+    "variant_count": 9,
+    "screenshot_count": 9,
+    "warnings": []
+  }
 }
 ```
 
-**Initial generation (without Playwright capture):**
+When artifacts are missing or invalid:
 
-Write a skeleton `design-ir.json` with:
+```json
+{
+  "visual_artifacts": {
+    "available": false,
+    "valid": false,
+    "producer": "opencode-environment:speckit-visual",
+    "canonical_url": "http://design-preview:80/design-context/<project-slug>/index.html",
+    "warnings": [
+      "Workbench visual artifacts are missing or invalid. Run: ./bin/oe speckit:visual <project-slug> all"
+    ]
+  }
+}
+```
 
-- `version`, `generated_at`, `project`, `source_mode`, `render_engine` populated.
-- `viewports` populated from config.
-- `screens` populated with id, name, source_path, source_hash, kind, route_hint, confidence from the renderable assets list (without variants).
-- `warnings` set to `["design-ir.json generated from source analysis only; run capture-open-design.mjs for full rendered extraction"]`.
+Path references are relative to the `normalized-assets.json` location (`design-processing/`).
 
-**Full generation (via capture-open-design.mjs):**
+### Step 3.9: Generate frontend-implementation-brief.md
 
-If Playwright is available and `capture-open-design.mjs` executes successfully, the script writes the complete `design-ir.json` with fully populated variants, node trees, computed styles, and bounds as described above.
-
-**When to attempt capture execution:**
-
-Attempt to execute `node <visual-output>/capture-open-design.mjs` when:
-- `--update-screenshots` is present, OR
-- `design-ir.json` does not exist, OR
-- `design-ir.json` exists but has the "source analysis only" warning, OR
-- `--force` is present.
-
-Skip capture execution when `--no-playwright-tests` is present or Playwright is not installed.
-
-If capture fails:
-- Keep the skeleton `design-ir.json`.
-- Record the failure and errors in `design-ir.json` `warnings` array.
-- Record the failure in `change-summary.md`.
-- Do NOT fail the entire processing command unless `--fail-on-visual-warnings` or `visual.failure_policy.fail_on_render_error: true`.
-
-### Step 3.9: Generate `frontend-implementation-brief.md`
-
-Write `<design-processing-output>/frontend-implementation-brief.md`:
+Write `<design_processing_output>/frontend-implementation-brief.md`:
 
 ```markdown
 # Frontend Implementation Brief
 
-This document tells future frontend agents how to consume the design context generated
-by spec-kit-open-design. It is written before a frontend repository exists and is intended
-to be read by the agent that first creates the frontend implementation.
+## Design Context
 
-## Design Context Location
+Path:
+`workspace/design-context/<project-slug>`
 
-The canonical design context lives in this directory:
+## Canonical Visual Contract
 
-\`\`\`text
-<design-context-root>/
-  source/open-design-export/    # Original Open Design assets (read-only)
-  design-processing/            # Generated specification artifacts
-  visual-regression/            # Visual regression package
-  handoff/                      # Human-readable handoff
-\`\`\`
+- `design-processing/design-ir.json`
+- `visual-regression/fixtures/prototype-map.json`
+- `visual-regression/fixtures/source-map.json`
+- `visual-regression/screenshots/`
 
-## Canonical Artifacts
+## Visual Comparison
 
-The following artifacts are normative and must be respected by any frontend implementation:
+Before backend integration, update:
 
-| Artifact | File | Purpose |
-|---|---|---|
-| Design IR | `design-processing/design-ir.json` | Canonical rendered visual implementation contract. Defines viewport-level pixel fidelity, node trees, computed styles, bounds, and measurements. |
-| Canonical screenshots | `visual-regression/screenshots/` | Per-viewport reference images. All frontend implementations MUST match these within configured diff thresholds. |
-| Design tokens | `design-processing/design-tokens.json` | Extracted CSS custom properties, colors, typography, spacing, radii, shadows, and motion values. |
-| Component contracts | `design-processing/component-contracts.md` | Reusable UI components detected from design sources. |
-| Page structures | `design-processing/page-structures.md` | User-facing page, screen, flow, and deck structures. |
-| State variants | `design-processing/state-variants.yaml` | States present in designs plus inferred missing states. |
-| Data mappings | `design-processing/data-mappings.json` | Schema-to-page data binding points. |
-| Spec context | `design-processing/specify-context.md` | Compact normative context for `/speckit.specify`. |
-| Change summary | `design-processing/change-summary.md` | What changed since the last design processing run. |
+`visual-regression/fixtures/route-map.json`
 
-## Visual Implementation Contract
+Then run from the workbench:
 
-`design-ir.json` is the single source of truth for pixel-level fidelity. It contains:
+```bash
+./bin/oe speckit:visual <project-slug> compare --frontend-url http://node-runner:5173
+```
 
-- **Viewport definitions**: exact width, height, and device scale factor for each target viewport.
-- **Screen variants**: one per screen × viewport combination.
-- **Node trees**: full DOM tree with computed CSS styles, bounding boxes, visibility, roles, and text content.
-- **Screenshot references**: paths to canonical screenshots.
+## Static GraphQL Fixture Strategy
 
-Every future frontend test should compare its rendered output against this contract.
+Implement the frontend UI first using deterministic static GraphQL JSON fixtures.
 
-## Route Map
+Fixture directory recommendation:
 
-The file `visual-regression/fixtures/route-map.json` maps each (screen, viewport) combination to an expected implementation route. **This file must be updated once the frontend repository is created and routes are established.**
+`frontend/src/mocks/graphql`
 
-Each entry looks like:
+Use one fixture per screen/state.
 
-\`\`\`json
-"login-page__desktop": {
-  "implementationRoute": "/login",
-  ...
-}
-\`\`\`
+Do not block visual fidelity work on backend persistence, auth, workflows, or resolver logic.
 
-Update `implementationRoute` to match the actual route path used in the frontend application.
+## Implementation Order
 
-## Running Visual Comparison
-
-Once the frontend repository exists and routes are configured, run visual comparison through the workbench:
-
-1. **Capture canonical screenshots** (from Open Design sources):
-   \`\`\`bash
-   ./bin/oe speckit:visual <project-slug> capture
-   \`\`\`
-
-2. **Compare frontend against canonical screenshots**:
-   \`\`\`bash
-   ./bin/oe speckit:visual <project-slug> compare <frontend-repo-path>
-   \`\`\`
-
-Or run directly from the visual-regression directory:
-
-\`\`\`bash
-cd workspace/design-context/<project-slug>/visual-regression
-npm install
-FRONTEND_URL=http://localhost:3000 npx playwright test
-\`\`\`
-
-## Updating Canonical Screenshots
-
-If the design sources change, regenerate:
-
-\`\`\`bash
-./bin/oe speckit:visual <project-slug> capture --update-screenshots
-\`\`\`
+1. Create frontend shell and routing.
+2. Create static GraphQL fixture layer.
+3. Implement screens from `source-map.json`.
+4. Implement components from `component-contracts.md`.
+5. Match layout/style from `design-ir.json`.
+6. Fill `route-map.json`.
+7. Run visual comparison.
+8. Iterate until visual diffs pass.
+9. Integrate real GraphQL backend.
+10. Add complex backend logic.
 
 ## Known Warnings
 
 <list-warnings-from-design-ir-and-change-summary>
 ```
 
-### Step 3.10: Generate `handoff/README.md`
+If visual artifacts are missing, include the remediation command and warning at the top of the file.
+
+### Step 3.10: Generate handoff/README.md
 
 Create the handoff directory.
 
-Write `<handoff-directory>/README.md`:
+Write `<handoff_output>/README.md`:
 
 ```markdown
 # Design Context Handoff: <project-slug>
@@ -1112,26 +662,43 @@ This package contains the canonical design context generated from Open Design so
 ### Design Processing Artifacts
 `siblings/design-processing/` — Machine-readable and human-readable design extraction:
 
-- `design-ir.json` — Rendered visual implementation contract (pixel fidelity, node trees, styles, bounds).
+- `design-ir.json` — Rendered visual implementation contract (consumed from crawler).
 - `design-tokens.json` — Extracted colors, typography, spacing, radii, shadows, motion.
 - `component-contracts.md` — Detected reusable UI components and their states.
 - `page-structures.md` — User-facing screens, pages, flows, and decks.
 - `state-variants.yaml` — Design states plus inferred missing states.
-- `data-mappings.json` — Schema-to-page data binding points.
+- `data-mappings.json` — Schema-to-page data binding points with static fixture strategy.
 - `specify-context.md` — Compact context for specification generation.
 - `frontend-implementation-brief.md` — Instructions for the frontend implementation agent.
 - `change-summary.md` — Processing history.
 
-### Visual Regression Package
-`siblings/visual-regression/` — Self-contained Playwright visual regression:
+### Visual Artifacts
 
-- `package.json` — npm dependencies and scripts.
-- `capture-open-design.mjs` — Canonical screenshot capture from Open Design sources.
-- `open-design.visual.spec.ts` — Visual comparison test spec.
-- `playwright.config.ts` — Playwright configuration.
-- `fixtures/source-map.json` — Screen and viewport definitions.
-- `fixtures/route-map.json` — Screen-to-route mapping (update after frontend routes exist).
-- `screenshots/` — Canonical reference screenshots.
+Visual artifacts are produced by the workbench static crawler:
+
+```bash
+./bin/oe speckit:visual <project-slug> all
+```
+
+Produced files:
+
+* `visual-regression/fixtures/prototype-map.json`
+* `visual-regression/fixtures/source-map.json`
+* `visual-regression/fixtures/route-map.json`
+* `visual-regression/screenshots/*.png`
+* `design-processing/design-ir.json`
+
+## Final Frontend Comparison
+
+After the frontend implementation exists:
+
+1. Update `visual-regression/fixtures/route-map.json`.
+2. Start the frontend.
+3. Run:
+
+```bash
+./bin/oe speckit:visual <project-slug> compare --frontend-url http://node-runner:5173
+```
 
 ## How to Consume from a Future Frontend Repository
 
@@ -1139,32 +706,6 @@ This package contains the canonical design context generated from Open Design so
 2. `design-ir.json` defines the pixel-level contract. All views, components, and styles must respect the measured bounds, colors, typography, spacing, shadows, and asset dimensions documented there.
 3. Canonical screenshots in `siblings/visual-regression/screenshots/` are the visual acceptance targets.
 4. Tokens, components, pages, states, and data mappings inform the implementation.
-
-## How to Update `route-map.json`
-
-After creating the frontend repository and establishing routes, edit:
-
-```
-siblings/visual-regression/fixtures/route-map.json
-```
-
-Update each entry's `implementationRoute` to match the actual route used in the application (e.g. `/login`, `/dashboard`, `/settings/profile`).
-
-## How to Run Comparison
-
-From the workbench:
-
-```bash
-./bin/oe speckit:visual <project-slug> compare <frontend-repo-path>
-```
-
-Or from the design-context root:
-
-```bash
-cd workspace/design-context/<project-slug>/visual-regression
-npm install
-FRONTEND_URL=http://localhost:3000 npx playwright test
-```
 
 ## Known Warnings
 
@@ -1175,31 +716,58 @@ FRONTEND_URL=http://localhost:3000 npx playwright test
 - Generated at: <timestamp>
 - Open Design processing extension version: <version>
 - Source mode: <source-mode>
+- Visual artifact producer: opencode-environment:speckit-visual
 ```
 
-### Step 3.11: Add Visual Artifacts to Manifest and Summaries
+### Step 3.11: Record Visual Processing Summary
 
-After generating all visual artifacts, update the in-memory tracking for later phases:
+After completing all visual artifact steps, store the following in memory for later phases:
 
-1. Record visual artifact paths for manifest.json (Phase 10).
-2. Record visual processing summary for change-summary.md (Phase 10).
-3. Record pixel fidelity rules for specify-context.md (Phase 9).
-4. Record visual processing information for the final summary (Phase 11).
+1. Visual ingestion enabled/disabled.
+2. Visual artifacts available/valid flags.
+3. design-ir.json status (valid/invalid/missing).
+4. prototype-map.json status (valid/invalid/missing).
+5. source-map.json status (valid/invalid/missing).
+6. Screenshot count and missing references.
+7. Screen count and variant count from design-ir.json.
+8. route-map.json status (created/preserved/updated/regenerated).
+9. All warnings collected during validation.
+10. Canonical preview URL.
 
-### Step 3.12: Error Handling for Visual Processing
+### Step 3.12: Error Handling for Visual Ingestion
 
-- If visual processing is disabled, skip this entire phase.
-- If a single screen fails to render, record a warning and continue with remaining screens.
-- If all screens fail, write a skeleton `design-ir.json` with warnings and continue.
+- If visual ingestion is disabled, skip this entire phase.
+- If `--require-visual-artifacts` or `visual.required: true` is set and any required artifact is missing or invalid, fail the command.
+- If artifacts are missing but not required, continue with warnings in all output files.
 - If output directories cannot be created, fail the entire command.
 - If generated files cannot be written, fail the entire command.
-- If `--fail-on-visual-warnings` is present and any warning exists, fail the command after generating all possible artifacts.
-- If `visual.failure_policy.fail_on_render_error` is true and any render error occurs, fail the command.
-- All captured warnings must also appear in `design-ir.json` `warnings` array.
+- All captured warnings must appear in `change-summary.md` and the manifest.
 
 ## Phase 4: Extract Design Tokens → `design-tokens.json`
 
-Use high-confidence structured sources first: HTML `<style>`, linked CSS files, component files, SVG attributes, JSON design metadata, and Markdown design-system notes.
+Use `design-ir.json` rendered node `computed_style` values as the highest-confidence source when available.
+
+Fall back to structured sources: HTML `<style>`, linked CSS files, component files, SVG attributes, JSON design metadata, and Markdown design-system notes.
+
+Token confidence rules:
+
+| Source | Confidence |
+|---|---|
+| Rendered computed style from `design-ir.json` | high |
+| CSS/static source extraction | medium/high |
+| Inferred from names/classes | medium |
+| Raster-only inference | low |
+
+Every token derived from `design-ir.json` must include source provenance:
+
+```json
+{
+  "source": "design-ir",
+  "screens": ["login-page", "dashboard"],
+  "nodes": ["node-12", "node-45"],
+  "confidence": "high"
+}
+```
 
 Extract:
 
@@ -1283,23 +851,25 @@ Output schema:
 
 ## Phase 5: Identify Component Contracts → `component-contracts.md`
 
-Use the normalized asset model to detect reusable UI structures.
+Use the normalized asset model and `design-ir.json` rendered node trees to detect reusable UI structures.
 
-Detection order:
+Priority detection order:
 
 1. Explicit Open Design component metadata, if present.
-2. Repeated HTML class names or DOM structures.
-3. Component files from MCP or local sources.
-4. CSS selectors reused across screens.
-5. SVG symbol/id reuse.
-6. Markdown/JSON design-system references.
-7. Repeated visual asset usage.
+2. `design-ir.json` rendered node subtrees — repeated DOM subtree shapes, role/tag/class combinations, text/style/bounds patterns, visual clusters, and repeated asset usage across screens.
+3. Repeated HTML class names or DOM structures from source files.
+4. Component files from MCP or local sources.
+5. CSS selectors reused across screens.
+6. SVG symbol/id reuse.
+7. Markdown/JSON design-system references.
+8. Repeated visual asset usage.
 
 Detection heuristics:
 
 - Recurring class names in 2+ files indicate candidate components.
 - Identical CSS rules with different class names indicate variants of the same component.
-- Repeated DOM subtree shapes indicate reusable components.
+- Repeated DOM subtree shapes across `design-ir.json` screens indicate reusable components.
+- Repeated button/input/card/navigation structures in the rendered node tree indicate components.
 - Repeated component exports, prop names, or slots indicate reusable components.
 - `:hover`, `:focus`, `:active`, `.active`, `.disabled`, `[aria-*]` selectors indicate states.
 - Components derived from raster/video-only references must be marked low confidence.
@@ -1308,19 +878,24 @@ For each component, document:
 
 - Component name, PascalCase.
 - Derivation source and confidence level.
-- Appears in source files.
-- Representative DOM or artifact structure.
-- CSS/design-token mapping.
+- Detection source: `design-ir` when derived from rendered node trees.
+- Screens where it appears.
+- Representative node ids (from `design-ir.json`) when applicable.
+- DOM/role structure.
+- Bounds/style summary.
+- Typography/colors/spacing/radius/shadow values (from `design-ir.json` computed styles when available).
 - States present in designs.
-- States absent but required by implementation.
+- States absent but required by implementation. Infer states from variants or repeated patterns in `design-ir.json`.
 - Props interface, if inferable.
 - Content slots.
-- Accessibility notes.
+- Accessibility notes from roles/aria attributes.
 - Warnings.
 
 ## Phase 6: Map Page, Screen, Flow, and Deck Structures → `page-structures.md`
 
-Document renderable user-facing structures.
+Document renderable user-facing structures. Use `prototype-map.json` and `source-map.json` as the canonical page list when available.
+
+**Important rule:** For SPA prototype exports, do not treat URL paths as page identity. The canonical page identity is: `screen id + Prototype Map action path + visual signature`.
 
 Supported structure types:
 
@@ -1334,17 +909,25 @@ Supported structure types:
 - static image reference
 - video/motion reference
 
-For each structure, capture:
+For each prototype page, document:
 
 1. Metadata:
-   - title
-   - source file
-   - original Open Design path or artifact id, if MCP-sourced
-   - inferred route or identifier
-   - app area/domain
-   - authentication requirement, if inferable
-   - confidence
-2. Layout type:
+   - Screen id (from `prototype-map.json` or `source-map.json`)
+   - Screen name
+   - Discovery strategy: `prototype-map` (from `prototype-map.json` discovery.strategy)
+   - Prototype Map entry label (from `entryLabel`)
+   - Action path (from `actionPath` or `action_path`)
+   - Source file (if available from source analysis)
+   - Original Open Design path or artifact id, if MCP-sourced
+   - Inferred route or identifier
+   - App area/domain
+   - Authentication requirement, if inferable
+   - Confidence
+2. Viewports captured (from `design-ir.json` variants):
+   - List of viewport names with widths/heights
+   - Screenshot references per viewport
+   - Design IR variant ids
+3. Layout type:
    - app shell
    - centered form/card
    - marketing/landing
@@ -1354,26 +937,26 @@ For each structure, capture:
    - wizard/flow
    - deck/slide
    - media/reference
-3. Component tree:
+4. Component tree:
    - component references from `component-contracts.md`
    - data binding points
    - conditional visibility
    - interactive targets
-4. Responsive behavior:
+5. Responsive behavior:
    - breakpoints
    - layout shifts
-5. Script/interaction notes:
+6. Script/interaction notes:
    - toggles
    - filtering
    - form validation
    - navigation
    - animation/motion
-6. Accessibility notes:
+7. Accessibility notes:
    - headings
    - landmarks
    - labels
    - focus order, if inferable
-7. Warnings.
+8. Warnings.
 
 ## Phase 7: Define State Variants → `state-variants.yaml`
 
@@ -1382,10 +965,35 @@ State variants come from two sources:
 1. Explicit design variants:
    - Companion files such as `dashboard-loading.html`, `login-error.html`, `screen-empty.png`.
    - Open Design metadata naming variants, frames, states, or flows.
+   - `prototype-map.json` pages with distinct action paths or entry labels.
+   - `source-map.json` screens with different URLs/discovery strategies.
+   - `design-ir.json` node states, rendered attributes/classes, aria states, and visible text patterns.
+
 2. Inferred missing states:
    - Only infer states when justified by structure.
    - Mark all inferred states with `shown_in_design: false`.
    - Include the inference rule that produced the state.
+
+Detect and document the following state categories when present or inferable:
+
+| Category | Examples |
+|---|---|
+| loading | spinners, skeletons, progress indicators |
+| empty | zero-state placeholders, "no results" messages |
+| error | error messages, failure states |
+| success | confirmation messages, completion states |
+| disabled | grayed-out controls, non-interactive elements |
+| selected | highlighted items, active tabs |
+| active | current navigation items, focused elements |
+| expanded | open accordions, visible dropdowns |
+| collapsed | closed accordions, hidden sections |
+| modal | dialogs, overlays, lightboxes |
+| drawer | side panels, slide-out menus |
+| menu | navigation menus, context menus |
+| dropdown | select menus, action menus |
+| tooltip | hover tooltips, info popovers |
+
+If a state is required for implementation but absent in the prototype, mark it as inferred.
 
 Inference rules:
 
@@ -1416,11 +1024,42 @@ For each page/screen/flow:
 3. Infer likely operations only when the schema supports them.
 4. Mark unmatched bindings as warnings.
 
+Add a `frontend_mocking` section supporting a static-data-first frontend workflow:
+
+```json
+{
+  "frontend_mocking": {
+    "recommended": true,
+    "strategy": "static-graphql-json-fixtures-first",
+    "purpose": "Decouple visual fidelity from backend complexity.",
+    "fixture_directory": "frontend/src/mocks/graphql",
+    "notes": [
+      "Implement the frontend against deterministic GraphQL JSON fixtures first.",
+      "Use one fixture per screen/state discovered from source-map.json.",
+      "Keep fixtures aligned with the eventual GraphQL operation shapes.",
+      "Only integrate the real backend after visual comparison passes."
+    ]
+  }
+}
+```
+
+For each screen in `source-map.json` (or discovered in Phase 1), generate suggested fixture references:
+
+```json
+{
+  "screenId": "login-page",
+  "screenName": "Login Page",
+  "suggestedFixture": "frontend/src/mocks/graphql/login-page.query.json",
+  "suggestedOperationName": "LoginPageQuery"
+}
+```
+
 If no schema files are found, still write the file with:
 
 ```json
 {
   "version": 1,
+  "frontend_mocking": { ... },
   "schema_sources": [],
   "pages": {},
   "warnings": ["No schema files found; data mappings were not inferred."]
@@ -1469,8 +1108,53 @@ This project has normalized Open Design assets. New specifications MUST respect 
 
 - `design-ir.json` is the canonical rendered visual implementation contract. Future frontend implementations MUST preserve measured viewport, bounds, typography, colors, spacing, shadows, radii, z-order, clipping, text metrics, and asset dimensions unless explicitly overridden.
 - Canonical screenshots are stored in the sibling `visual-regression/screenshots` directory.
-- The generated visual regression package defines the acceptance workflow.
 - Once the frontend repository exists, update `visual-regression/fixtures/route-map.json` and run the workbench comparison command.
+
+## Visual Contract
+
+The canonical visual contract is:
+
+`design-processing/design-ir.json`
+
+The prototype pages were discovered by the workbench crawler from:
+
+`http://design-preview:80/design-context/<project-slug>/index.html`
+
+Screens are SPA prototype states, not deep-link URLs. Treat each screen identity as:
+
+`screen id + Prototype Map action path + visual signature`
+
+The frontend implementation MUST match the reference screenshots in:
+
+`visual-regression/screenshots/`
+
+The frontend implementation MUST update:
+
+`visual-regression/fixtures/route-map.json`
+
+after routes exist.
+
+Run comparison from the workbench:
+
+```bash
+./bin/oe speckit:visual <project-slug> compare --frontend-url http://node-runner:5173
+```
+
+## Recommended Frontend Build Strategy
+
+Build the frontend UI first using static GraphQL JSON fixtures.
+
+Do not wait for complex backend behavior before matching the visual contract.
+
+Recommended sequence:
+
+1. Implement routes and screens with static GraphQL JSON fixtures.
+2. Pass visual comparison against the crawled screenshots.
+3. Align GraphQL operations with backend schema.
+4. Replace mock transport with the real backend.
+5. Add complex backend workflows after visual fidelity is stable.
+
+If visual artifacts are missing, include the warning and remediation command at the top of this section.
 
 ## Structures Available
 
@@ -1501,28 +1185,38 @@ Generate `change-summary.md` with:
 - confidence summary
 - recommended next step
 
-When visual processing is enabled, include a "Visual Processing" section:
+When visual processing is enabled, include a "Workbench Visual Artifact Ingestion" section:
 
 ```markdown
-## Visual Processing
+## Workbench Visual Artifact Ingestion
 
-- Visual processing: enabled
-- Project slug: `<project-slug>`
-- Design context root: `<path>`
-- Visual regression directory: `<path>`
-- Screens rendered: N
-- Screenshots generated: N
-- Viewports: desktop, tablet, mobile
-- Playwright package: `<version>`
-- Warnings: N
+- Visual ingestion: enabled
+- Visual artifacts available: true/false
+- Visual artifacts valid: true/false
+- Producer: opencode-environment:speckit-visual
+- Canonical preview URL: http://design-preview:80/design-context/<project-slug>/index.html
+- design-ir.json: found/missing/invalid
+- prototype-map.json: found/missing/invalid
+- source-map.json: found/missing/invalid
+- screenshots: N found
+- screens: N
+- variants: N
+- route-map.json: created/preserved/updated/regenerated
+- warnings: N
+```
+
+If visual artifacts are missing, also include the remediation command:
+
+```bash
+./bin/oe speckit:visual <project-slug> all
 ```
 
 If visual processing is disabled, include:
 
 ```markdown
-## Visual Processing
+## Workbench Visual Artifact Ingestion
 
-- Visual processing: disabled
+- Visual ingestion: disabled
 ```
 
 If history is enabled:
@@ -1563,17 +1257,22 @@ Update `manifest.json` with:
     "frontend_implementation_brief": "frontend-implementation-brief.md",
     "specify_context": "specify-context.md",
     "change_summary": "change-summary.md",
-    "visual_regression": "../visual-regression/open-design.visual.spec.ts",
-    "visual_source_map": "../visual-regression/fixtures/source-map.json",
-    "visual_route_map": "../visual-regression/fixtures/route-map.json",
+    "prototype_map": "../visual-regression/fixtures/prototype-map.json",
+    "source_map": "../visual-regression/fixtures/source-map.json",
+    "route_map": "../visual-regression/fixtures/route-map.json",
+    "screenshots": "../visual-regression/screenshots",
     "handoff_readme": "../handoff/README.md"
   },
   "visual": {
-    "enabled": false,
-    "directory": "../visual-regression",
-    "rendered_screen_count": 0,
+    "enabled": true,
+    "required": false,
+    "available": true,
+    "valid": true,
+    "producer": "opencode-environment:speckit-visual",
+    "canonical_url": "http://design-preview:80/design-context/<project-slug>/index.html",
+    "screen_count": 0,
+    "variant_count": 0,
     "screenshot_count": 0,
-    "viewports": [],
     "warnings": []
   },
   "changes": {
@@ -1598,14 +1297,13 @@ Report:
 **MCP**: `<enabled/disabled, server, project>`  
 **Output**: `<design-processing-output>`  
 **Specification context**: `<specify-context-path>`  
-**Visual processing**: `enabled/disabled`
+**Visual processing**: `ingested/disabled`
 
 ### Artifacts Generated
 
 | Artifact | File | Contents |
 |---|---|---|
 | Normalized assets | `normalized-assets.json` | N assets discovered |
-| Design IR | `design-ir.json` | N screens, M viewport variants |
 | Design tokens | `design-tokens.json` | N colors, M type tokens, K spacing values |
 | Component contracts | `component-contracts.md` | N components |
 | Page structures | `page-structures.md` | N structures |
@@ -1615,14 +1313,18 @@ Report:
 | Specification context | `specify-context.md` | Compact context for `/speckit.specify` |
 | Change summary | `change-summary.md` | Added/modified/removed assets |
 
-### Visual Processing
+### Visual Artifact Ingestion
 
 - Enabled: `yes/no`
-- Visual regression: `<visual-output>`
-- Screens rendered: N
-- Screenshots captured: N
-- Viewports: desktop, tablet, mobile
-- Playwright tests: `generated/skipped`
+- Producer: opencode-environment:speckit-visual
+- Canonical URL: `<canonical-preview-url>`
+- design-ir.json: found/missing/invalid
+- prototype-map.json: found/missing/invalid
+- source-map.json: found/missing/invalid
+- Screenshots found: N
+- Screens: N (from design-ir)
+- Variants: N (from design-ir)
+- route-map.json: created/preserved/updated/regenerated
 - Warnings: N
 
 ### Change Summary
@@ -1640,7 +1342,7 @@ Report:
 
 Run `/speckit.specify`. The generated `specify-context.md` should be read and treated as mandatory design context unless explicitly overridden.
 
-If visual processing was enabled, the visual regression package at `<visual-output>` is ready for use. Run `./bin/oe speckit:visual <project-slug> capture` to generate canonical screenshots, or `npm install && npm run capture` from the visual-regression directory.
+If visual artifact ingestion was enabled, ensure the workbench crawler artifacts are current. Run `./bin/oe speckit:visual <project-slug> all` to regenerate if needed.
 ```
 
 ## Quality Principles

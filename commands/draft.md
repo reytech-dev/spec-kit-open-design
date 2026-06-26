@@ -26,14 +26,8 @@ Supported arguments:
 - `--project <slug>`: pass through to `/speckit.open-design.process`.
 - `--visual`: pass through to `/speckit.open-design.process`.
 - `--no-visual`: pass through to `/speckit.open-design.process`.
-- `--visual-output <path>`: pass through to `/speckit.open-design.process`.
-- `--source-map <path>`: pass through to `/speckit.open-design.process`.
-- `--route-map <path>`: pass through to `/speckit.open-design.process`.
-- `--viewport <name|widthxheight>`: pass through to `/speckit.open-design.process`.
-- `--update-screenshots`: pass through to `/speckit.open-design.process`.
-- `--playwright-tests`: pass through to `/speckit.open-design.process`.
-- `--no-playwright-tests`: pass through to `/speckit.open-design.process`.
-- `--fail-on-visual-warnings`: pass through to `/speckit.open-design.process`.
+- `--require-visual-artifacts`: pass through to `/speckit.open-design.process`.
+- `--force-route-map`: pass through to `/speckit.open-design.process`.
 
 All remaining text is the feature idea to draft.
 
@@ -73,14 +67,8 @@ Pass through supported processing flags:
 - `--project`
 - `--visual`
 - `--no-visual`
-- `--visual-output`
-- `--source-map`
-- `--route-map`
-- `--viewport`
-- `--update-screenshots`
-- `--playwright-tests`
-- `--no-playwright-tests`
-- `--fail-on-visual-warnings`
+- `--require-visual-artifacts`
+- `--force-route-map`
 
 After processing, verify whether the configured specification context file exists.
 

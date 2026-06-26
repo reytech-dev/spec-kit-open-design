@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: "open-design"
   name: "Open Design"
-  version: "1.2.0"
+  version: "1.3.0"
   description: "Normalizes Open Design assets into spec-kit-readable design context before specification generation."
   author: "Philipp Reinert"
   repository: "https://github.com/reytech-dev/spec-kit-open-design"
@@ -82,44 +82,26 @@ defaults:
   project:
     slug: null
   visual:
-    enabled: false
-    directory: null
-    screenshots_directory: null
-    source_map: null
-    route_map: null
-    playwright:
-      package_version: "1.50.0"
-      runner: "workbench"
-      browser: "chromium"
-      headless: true
-    render:
-      wait_until: "networkidle"
-      default_timeout_ms: 30000
-      full_page: false
-      animations: "disabled"
-      caret: "hide"
-      scale: "css"
-    viewports:
-      - name: desktop
-        width: 1440
-        height: 1024
-        device_scale_factor: 1
-      - name: tablet
-        width: 768
-        height: 1024
-        device_scale_factor: 1
-      - name: mobile
-        width: 390
-        height: 844
-        device_scale_factor: 2
-    diff:
-      max_diff_pixels: 200
-      max_diff_pixel_ratio: 0.001
-      threshold: 0.2
+    enabled: true
+    required: false
+    canonical_url_template: "http://design-preview:80/design-context/${project.slug}/index.html"
+    artifacts:
+      design_ir: null
+      prototype_map: null
+      source_map: null
+      screenshots_directory: null
+    comparison:
+      route_map: null
+      default_frontend_url: "http://node-runner:5173"
+      generate_route_map_template: true
+      diff:
+        max_diff_pixels: 200
+        max_diff_pixel_ratio: 0.001
+        threshold: 0.2
     failure_policy:
-      fail_on_render_error: false
-      fail_on_missing_fonts: false
-      fail_on_external_assets: false
+      fail_on_missing_visual_artifacts: false
+      fail_on_invalid_visual_artifacts: false
+      fail_on_missing_screenshots: false
   behavior:
     before_feature_exists: true
     stale_policy: "regenerate"
