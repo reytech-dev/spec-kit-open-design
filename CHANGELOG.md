@@ -1,3 +1,7 @@
+## 1.3.0 (2026-06-26)
+
+* feat(crawler): add processing of open-design crawler artifacts ([ec3c245](https://github.com/reytech-dev/spec-kit-open-design/commit/ec3c245))
+
 ## 1.2.0 (2026-06-24)
 
 * feat(visualize): add instructions to execute visual tests to pixel copy the open-design ([e6814e6](https://github.com/reytech-dev/spec-kit-open-design/commit/e6814e6))
