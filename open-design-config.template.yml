@@ -119,6 +119,11 @@ visual:
     default_frontend_url: "http://node-runner:5173"
     generate_route_map_template: true
 
+    routing:
+      # When true, proposed implementation routes are inferred from screen
+      # metadata and written to route-map.json entries.
+      propose_routes: true
+
     diff:
       max_diff_pixels: 200
       max_diff_pixel_ratio: 0.001

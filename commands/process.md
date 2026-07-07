@@ -477,13 +477,83 @@ Continue processing, but mark `visual_artifacts.available: false` and `visual_ar
 
 ### Step 3.7: Generate route-map.json
 
-Use `source-map.json` and `design-ir.json` as inputs to generate an editable route map template.
+Use `source-map.json` and `design-ir.json` as inputs to generate an editable route map template with proposed frontend routes.
 
 Read existing `route-map.json` if it exists.
 
+#### Route Inference
+
+When `visual.comparison.routing.propose_routes` is `true` (default), infer proposed frontend routes from screen metadata. When `false`, skip inference and use `implementationRoute: null` for all entries.
+
+For each entry, determine `implementationRoute` using this priority:
+
+1. **Preserved route**: If `route-map.json` already contains this entry with a non-null `implementationRoute` AND `--force-route-map` is NOT set, preserve the existing value.
+2. **Inferred route**: Otherwise, extract the best available label in this order:
+   - `screenName`
+   - `screenId`
+   - `entryLabel`
+   - source-map / prototype-map name
+
+Normalize the candidate:
+
+- lowercase
+- strip leading numeric ordering prefixes: `01-`, `02_`, `003 `, `1.`, etc.
+- strip trailing generic suffixes: `page`, `screen`, `view`, `frame`
+- replace whitespace and underscores with hyphens
+- collapse consecutive hyphens into one
+- trim leading and trailing hyphens
+
+Apply special-case mappings to the normalized slug:
+
+| Normalized slug matches | Output route |
+|---|---|
+| `landing`, `landing-page`, `home`, `homepage` | `/` |
+| `signup`, `sign-up`, `register`, `registration` | `/signup` |
+| `login`, `log-in`, `signin`, `sign-in` | `/login` |
+| `dashboard-overview`, `overview` | `/dashboard` |
+
+All other candidates output `/${normalized-slug}`.
+
+If no usable candidate exists, keep `implementationRoute: null`.
+
+#### routeProposal Metadata
+
+Each entry MUST include a `routeProposal` object documenting the route source:
+
+```json
+{
+  "source": "<inferred|preserved|none>",
+  "confidence": "<high|medium|low|none>",
+  "normalizedFrom": "<original-label>"
+}
+```
+
+Confidence levels:
+
+- **`high`**: preserved existing route, or matched a known special-case mapping.
+- **`medium`**: inferred from `screenName` or `screenId`.
+- **`low`**: inferred from fallback metadata (`entryLabel`, source-map/prototype-map name).
+- **`none`**: no route could be inferred; `implementationRoute` remains `null`.
+
+Omit `normalizedFrom` when `source` is `"preserved"`.
+
+#### Warnings
+
+Emit per-entry warnings only when:
+
+- confidence is `none` (add: `"No route could be inferred from screen metadata."`)
+- confidence is `low` (add: `"Route was inferred from weak metadata; verify after frontend routing is finalized."`)
+- multiple distinct screen entries resolve to the same inferred route (add: `"Duplicate route: <other-entry-key> also resolved to <route>."`)
+
+Do NOT emit the default warning `"Set implementationRoute after the frontend route exists."` for entries where a route was inferred with `high` or `medium` confidence.
+
+Emit a top-level `warnings` entry only when at least one per-entry warning exists, or when a duplicate-route conflict was detected.
+
+#### Generation Rules
+
 **If `route-map.json` does NOT exist:**
 
-Create it with one entry per screen-variant combination discovered from `design-ir.json` and `source-map.json`. Use the following schema:
+Create it with one entry per screen-variant combination discovered from `design-ir.json` and `source-map.json`. Apply route inference to every entry. Use the following schema:
 
 ```json
 {
@@ -496,42 +566,44 @@ Create it with one entry per screen-variant combination discovered from `design-
     "default_url": "http://node-runner:5173"
   },
   "entries": {
-    "login-page__desktop": {
-      "screenId": "login-page",
-      "screenName": "Login Page",
+    "02-signup__desktop": {
+      "screenId": "02-signup",
+      "screenName": "Sign Up",
       "viewport": {
         "name": "desktop",
         "width": 1440,
         "height": 1024,
         "deviceScaleFactor": 1
       },
-      "implementationRoute": null,
-      "referenceScreenshot": "../screenshots/login-page__desktop.png",
+      "implementationRoute": "/signup",
+      "routeProposal": {
+        "source": "inferred",
+        "confidence": "medium",
+        "normalizedFrom": "02-signup"
+      },
+      "referenceScreenshot": "../screenshots/02-signup__desktop.png",
       "maxDiffPixels": 200,
       "maxDiffPixelRatio": 0.001,
       "threshold": 0.2,
       "actionPath": [],
-      "warnings": [
-        "Set implementationRoute after the frontend route exists."
-      ]
+      "warnings": []
     }
   },
-  "warnings": [
-    "implementationRoute values must be filled after frontend routes exist."
-  ]
+  "warnings": []
 }
 ```
 
 **If `route-map.json` already exists (and `--force-route-map` is NOT set):**
 
-1. Preserve all existing `implementationRoute` values.
-2. Add new entries for screens/variants discovered in `design-ir.json` / `source-map.json` that do not exist in the current route-map.
-3. Do NOT remove stale entries.
-4. Update viewport dimensions and referenceScreenshot paths for existing entries if they changed.
+1. For existing entries with a non-null `implementationRoute`, preserve the value. Add `routeProposal` with `"source": "preserved"` and `"confidence": "high"`.
+2. For existing entries where `implementationRoute` is `null`, run route inference to fill in a proposed route.
+3. Add new entries for screens/variants discovered in `design-ir.json` / `source-map.json` that do not exist in the current route-map. Run route inference on new entries.
+4. Do NOT remove stale entries.
+5. Update viewport dimensions and referenceScreenshot paths for existing entries if they changed.
 
 **If `--force-route-map` is set:**
 
-Regenerate the entire `route-map.json` from `design-ir.json` and `source-map.json`. Discard any existing entries. Write fresh entries with `implementationRoute: null` and the standard warnings.
+Regenerate the entire `route-map.json` from `design-ir.json` and `source-map.json`. Discard any existing entries. Run route inference for every entry (do not preserve existing `implementationRoute` values).
 
 Use `visual.comparison.diff` thresholds from config for `maxDiffPixels`, `maxDiffPixelRatio`, and `threshold` in each entry.
 
@@ -630,7 +702,7 @@ Do not block visual fidelity work on backend persistence, auth, workflows, or re
 3. Implement screens from `source-map.json`.
 4. Implement components from `component-contracts.md`.
 5. Match layout/style from `design-ir.json`.
-6. Fill `route-map.json`.
+6. Review and adjust `route-map.json`.
 7. Run visual comparison.
 8. Iterate until visual diffs pass.
 9. Integrate real GraphQL backend.
@@ -692,7 +764,7 @@ Produced files:
 
 After the frontend implementation exists:
 
-1. Update `visual-regression/fixtures/route-map.json`.
+1. Review and update proposed routes in `visual-regression/fixtures/route-map.json` if needed.
 2. Start the frontend.
 3. Run:
 
@@ -1108,7 +1180,7 @@ This project has normalized Open Design assets. New specifications MUST respect 
 
 - `design-ir.json` is the canonical rendered visual implementation contract. Future frontend implementations MUST preserve measured viewport, bounds, typography, colors, spacing, shadows, radii, z-order, clipping, text metrics, and asset dimensions unless explicitly overridden.
 - Canonical screenshots are stored in the sibling `visual-regression/screenshots` directory.
-- Once the frontend repository exists, update `visual-regression/fixtures/route-map.json` and run the workbench comparison command.
+- Once the frontend repository exists, review the proposed routes in `visual-regression/fixtures/route-map.json` and run the workbench comparison command.
 
 ## Visual Contract
 
@@ -1128,11 +1200,11 @@ The frontend implementation MUST match the reference screenshots in:
 
 `visual-regression/screenshots/`
 
-The frontend implementation MUST update:
+Proposed implementation routes are pre-filled in:
 
 `visual-regression/fixtures/route-map.json`
 
-after routes exist.
+Review and adjust them after frontend routing decisions are finalized.
 
 Run comparison from the workbench:
 

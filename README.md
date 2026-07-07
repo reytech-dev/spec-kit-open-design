@@ -110,7 +110,7 @@ workspace/design-context/<slug>/
 
 4. Use generated artifacts for specification and frontend implementation.
 
-5. After frontend routes exist, update:
+5. Review and adjust proposed routes in route-map.json after frontend routing decisions are finalized:
    `workspace/design-context/<project-slug>/visual-regression/fixtures/route-map.json`
 
 6. Compare implementation:
