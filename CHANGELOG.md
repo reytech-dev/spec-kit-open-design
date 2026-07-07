@@ -1,3 +1,7 @@
+## 1.4.0 (2026-07-07)
+
+* feat(routes): propose routes if the design export does not come with proper route names ([86512f6](https://github.com/reytech-dev/spec-kit-open-design/commit/86512f6))
+
 ## 1.3.0 (2026-06-26)
 
 * feat(crawler): add processing of open-design crawler artifacts ([ec3c245](https://github.com/reytech-dev/spec-kit-open-design/commit/ec3c245))
